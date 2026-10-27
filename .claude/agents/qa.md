@@ -23,15 +23,17 @@ The orchestrator gives you a task id. Its acceptance criteria are in `docs/specs
      ```
    - Timing: `time scripts/mcp_call.py ...`.
    - Criteria about code structure (packages, deleted files, golden tests): check with `grep`, `ls`, and the test report under `build/test-results/`.
-3. Then try one or two things the criteria don't name but an agent would plausibly do (a wrong path, a pattern that matches nothing) and note what happens.
+3. **Regression**: rerun the observable checks of every task already ticked `## [x]` in the plan (tool calls against the fixture and the reference project; skip structural criteria the test suite already covers). Anything that passed before and fails now is a FAIL of this task.
+4. Then try one or two things the criteria don't name but an agent would plausibly do (a wrong path, a pattern that matches nothing) and note what happens.
 
 ## Report (your final message, under 350 words)
 
 ```
 ## QA: <task>
 - Criterion N: PASS | FAIL: the command run → what was observed (trimmed)
+Regression: T<k> criterion N: PASS | FAIL → what was observed (or "no earlier tasks")
 Exploratory: what you tried → what happened
 Verdict: PASS | FAIL
 ```
 
-The verdict is PASS exactly when every criterion passes. Exploratory surprises are reported, not counted against the verdict.
+The verdict is PASS exactly when every criterion and every regression check passes. Exploratory surprises are reported, not counted against the verdict.
