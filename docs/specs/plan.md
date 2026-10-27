@@ -8,7 +8,7 @@ Reference project for QA: `$REFERENCE_PROJECT` (read-only: never write inside it
 
 ---
 
-## [ ] T1: Core skeleton and `listModules`
+## [x] T1: Core skeleton and `listModules`
 
 Move module listing behind `ArchGuard.listModules` and the answer types, and give the MCP layer its one-line `respond(answer)` helper.
 

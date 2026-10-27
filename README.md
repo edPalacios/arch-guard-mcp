@@ -21,22 +21,26 @@ Genera `build/libs/arch-guard-mcp-all.jar` (fat JAR ejecutable).
 
 ## Tool `list_modules`
 
-Entrada: `{ "projectPath": "/ruta/absoluta/al/proyecto" }` (directorio raíz, o la ruta directa
-a `settings.gradle.kts`).
+Entrada: `{ "projectPath": "/ruta/absoluta/al/proyecto" }` (directorio raíz del proyecto).
 
-Salida (como texto JSON y como `structuredContent`):
+Salida (el mismo JSON como texto y como `structuredContent`). El campo `type` nombra la
+variante de la respuesta, para que el agente ramifique sobre él:
 
 ```json
 {
-  "settingsFile": "/…/settings.gradle.kts",
+  "type": "ModuleList",
   "rootProjectName": "MyApp",
-  "modules": [":app", ":core:domain", ":core:data", ":feature:login"],
+  "modules": [":app", ":core:data", ":core:domain", ":feature:login"],
   "unresolved": []
 }
 ```
 
-`unresolved` lista argumentos de `include(...)` que no son literales simples (plantillas
-`"$x"`, variables, bucles). Se reportan en vez de descartarse en silencio.
+`modules` va deduplicado y ordenado. `unresolved` lista las inclusiones que no se pueden
+resolver sin ejecutar Gradle (plantillas `"$x"`, variables, bucles), cada una con su
+declaración, fichero y línea; se reportan en vez de descartarse en silencio.
+
+Si no hay directorio o no hay `settings.gradle.kts`, la respuesta es un resultado de error
+con `{"type": "ProjectNotFound", "path": ..., "reason": ...}`.
 
 ## Probar con MCP Inspector
 

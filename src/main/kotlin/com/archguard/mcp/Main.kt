@@ -1,12 +1,12 @@
 package com.archguard.mcp
 
+import com.archguard.core.ArchGuard
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.Job
@@ -14,20 +14,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
-import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-
-private val prettyJson = Json { prettyPrint = true }
 
 fun main() {
     // stdout is the JSON-RPC channel. Keep a handle to it for the transport and send every
@@ -74,33 +67,13 @@ private fun registerListModules(server: Server) {
         ),
         toolAnnotations = ToolAnnotations(readOnlyHint = true, openWorldHint = false),
     ) { request ->
-        val rawPath = request.arguments?.get("projectPath")?.jsonPrimitive?.contentOrNull
-            ?: return@addTool error("Missing required argument 'projectPath'")
-
-        val settingsFile = resolveSettingsFile(Paths.get(rawPath))
-            ?: return@addTool error("No settings.gradle.kts found in '$rawPath'")
-
-        val info = SettingsParser.parse(Files.readString(settingsFile))
-        val payload = buildJsonObject {
-            put("settingsFile", settingsFile.toString())
-            put("rootProjectName", JsonPrimitive(info.rootProjectName))
-            putJsonArray("modules") { info.modules.forEach { add(it) } }
-            putJsonArray("unresolved") { info.unresolved.forEach { add(it) } }
-        }
-        CallToolResult(
-            content = listOf(TextContent(prettyJson.encodeToString(payload))),
-            structuredContent = payload,
-        )
+        respond(ArchGuard.listModules(request.projectDir()))
     }
 }
 
-private fun resolveSettingsFile(projectPath: Path): Path? {
-    val path = projectPath.toAbsolutePath().normalize()
-    return when {
-        Files.isRegularFile(path) && path.fileName.toString() == "settings.gradle.kts" -> path
-        Files.isDirectory(path) -> path.resolve("settings.gradle.kts").takeIf { Files.isRegularFile(it) }
-        else -> null
-    }
+/** The analysed project's root directory, from the required `projectPath` argument. */
+private fun CallToolRequest.projectDir(): Path {
+    val raw = arguments?.get("projectPath")?.jsonPrimitive?.contentOrNull
+    require(!raw.isNullOrBlank()) { "missing required argument 'projectPath'" }
+    return Paths.get(raw)
 }
-
-private fun error(message: String) = CallToolResult(content = listOf(TextContent(message)), isError = true)

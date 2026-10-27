@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.4.21"
+    kotlin("plugin.serialization") version "2.4.21"
     id("com.gradleup.shadow") version "9.6.1"
     application
 }
@@ -14,6 +15,9 @@ repositories {
 dependencies {
     // Server-only artifact: we don't need the client half of the umbrella `kotlin-sdk`.
     implementation("io.modelcontextprotocol:kotlin-sdk-server:0.16.0")
+    // The answer types are the wire format: @Serializable sealed interfaces with a "type"
+    // discriminator (ADR 0003). Same version the SDK already brings in.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     // SLF4J backend for the SDK's kotlin-logging. slf4j-simple writes to stderr,
     // which keeps stdout clean for the JSON-RPC stream.
     runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
