@@ -1,0 +1,3 @@
+# Read build scripts statically instead of running Gradle
+
+The guard reads `settings.gradle.kts` and each module's `build.gradle.kts` as text instead of asking Gradle through the Tooling API. Static reading answers in milliseconds, needs no compiling project or credentials (real projects whose settings need credentials fail to configure without them), and never executes the analysed project's code. The cost is blindness to dynamic declarations, which the guard reports as unresolved declarations instead of hiding them. The Tooling API stays a later option behind the same interface, for when exactness matters more than speed.
