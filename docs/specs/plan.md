@@ -65,3 +65,17 @@ Load `archguard.json` and answer `moduleGraph` without a filter.
 4. Rule sources found: `docs/**/*.md`, `CLAUDE.md`, `AGENTS.md`, other root `*.md`, modules whose path contains `architecture`, Konsist / ArchUnit / detekt config, each with its kind.
 5. Against the reference project, the proposal yields layers `app`, `feature`, `component`, `shared-component`, `core` with the rules in the spec's reference section, and the rule sources include `CONTRIBUTING.md`, `docs/architecture.md` and `:architecture-tests`.
 6. README documents the three tools and `archguard.json`.
+
+## [ ] T6: Dangling dependencies
+
+Found while testing on the reference project: `implementation(project(":feature:account:favorites"))`, pointing at a module that `settings.gradle.kts` does not include, was silently dropped. Gradle fails on it, and static reading can detect it reliably, so the guard reports it.
+
+**Acceptance criteria**
+1. A module dependency whose target is not an included module is a dangling dependency, carrying source module, target as written, configuration, file and line. A `projects.x.y` accessor that maps to no included module is dangling too, with the accessor text as target.
+2. `checkArchitecture` answers `danglingDependencies` (sorted by file, then line) and `counts` gains a `danglingDependencies` count. A dangling dependency is never a violation and never enters the layer matrix, whatever pattern its target would match.
+3. Dangling dependencies are reported for every source module, excluded ones included: they break the build regardless of layering.
+4. `moduleGraph` with a filter marks each dangling dependency of the matched modules (`dangling: true`); the layer summary leaves them out of the matrix and reports their count.
+5. The `layered` fixture gains one dangling dependency; tests cover a dangling `project(":x")`, a dangling accessor, and a dangling dependency from an excluded module.
+6. The wire format changes are additive and intended: the golden JSON of `ArchitectureReport`, `ModuleDependencies` and `LayerSummary` is updated in this task to add the new fields. Any other change to existing golden JSON is still a regression.
+7. Tool descriptions and README mention dangling dependencies.
+8. Against a temporary copy of the reference project's Gradle files plus the reference config, the report has zero dangling dependencies; after appending `implementation(project(":feature:account:favorites"))` to `component/coupons/build.gradle.kts` in the copy, exactly that one is reported with its file and line, and the violation count is unchanged.

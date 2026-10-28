@@ -16,6 +16,10 @@ _Avoid_: link, reference
 A module inclusion or dependency the guard found but could not resolve without running Gradle (string templates, variables, loops).
 _Avoid_: unknown, dynamic module
 
+**Dangling dependency**:
+A module dependency whose target is not a module of the build (`project(":feature:account:favorites")` when settings never include it). Gradle fails on it; it is never a violation.
+_Avoid_: unknown module, missing module, broken dependency
+
 **Dependency helper**:
 A project-defined function in a build script that declares module dependencies out of the guard's sight (`commonLibs(project, ...)`). Counted by name, never resolved.
 _Avoid_: alias, wrapper
