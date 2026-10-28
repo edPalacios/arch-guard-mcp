@@ -22,7 +22,7 @@ Move module listing behind `ArchGuard.listModules` and the answer types, and giv
 7. Against the reference project, `list_modules` returns the same modules as before this task (deduplicated, conditional includes included).
 8. Function declarations named `include` (`fun include(path: String) { ... }`, as in the reference project's selective-include mode) are not include calls: today `path: String` is wrongly reported as unresolved. The delegating `settings.include(path)` inside it stays an unresolved declaration, because its argument is not a literal.
 
-## [ ] T2: Reading module dependencies; `moduleGraph` with a filter
+## [x] T2: Reading module dependencies; `moduleGraph` with a filter
 
 Read each module's `build.gradle.kts` and expose the detail view.
 

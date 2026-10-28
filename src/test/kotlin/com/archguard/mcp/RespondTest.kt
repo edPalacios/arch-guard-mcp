@@ -1,5 +1,8 @@
 package com.archguard.mcp
 
+import com.archguard.core.ModuleDependencies
+import com.archguard.core.ModuleDependency
+import com.archguard.core.ModuleDetail
 import com.archguard.core.ModuleList
 import com.archguard.core.ProjectNotFound
 import com.archguard.core.UnresolvedDeclaration
@@ -17,6 +20,33 @@ class RespondTest {
         rootProjectName = "golden",
         modules = listOf(":app", ":core:ui"),
         unresolved = listOf(UnresolvedDeclaration("featureModule", "settings.gradle.kts", 7)),
+    )
+
+    private val moduleDependencies = ModuleDependencies(
+        filter = ":feature:**",
+        modules = listOf(
+            ModuleDetail(
+                path = ":feature:orders",
+                buildFile = "feature/orders/build.gradle.kts",
+                dependencies = listOf(
+                    ModuleDependency(
+                        target = ":core:ui",
+                        configuration = "implementation",
+                        file = "feature/orders/build.gradle.kts",
+                        line = 12,
+                    ),
+                ),
+                unresolved = listOf(
+                    UnresolvedDeclaration(
+                        declaration = "uiModule",
+                        file = "feature/orders/build.gradle.kts",
+                        line = 14,
+                    ),
+                ),
+            ),
+        ),
+        unanalysedHelpers = mapOf("commonLibs" to 3),
+        warnings = listOf("no module matches ':nope'"),
     )
 
     private val projectNotFound = ProjectNotFound(path = "/tmp/nowhere", reason = "not a directory")
@@ -52,6 +82,48 @@ class RespondTest {
         val result = respond(moduleList)
 
         assertEquals(result.structuredContent, Json.parseToJsonElement(text(result)).jsonObject)
+    }
+
+    @Test
+    fun `the module dependencies wire format`() {
+        val result = respond(moduleDependencies)
+
+        assertEquals(
+            """
+            {
+                "type": "ModuleDependencies",
+                "filter": ":feature:**",
+                "modules": [
+                    {
+                        "path": ":feature:orders",
+                        "buildFile": "feature/orders/build.gradle.kts",
+                        "dependencies": [
+                            {
+                                "target": ":core:ui",
+                                "configuration": "implementation",
+                                "file": "feature/orders/build.gradle.kts",
+                                "line": 12
+                            }
+                        ],
+                        "unresolved": [
+                            {
+                                "declaration": "uiModule",
+                                "file": "feature/orders/build.gradle.kts",
+                                "line": 14
+                            }
+                        ]
+                    }
+                ],
+                "unanalysedHelpers": {
+                    "commonLibs": 3
+                },
+                "warnings": [
+                    "no module matches ':nope'"
+                ]
+            }
+            """.trimIndent(),
+            text(result),
+        )
     }
 
     @Test

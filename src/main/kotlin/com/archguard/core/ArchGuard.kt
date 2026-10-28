@@ -17,11 +17,30 @@ object ArchGuard {
      */
     fun listModules(projectDir: Path): ListAnswer {
         val dir = projectDir.toAbsolutePath().normalize()
-        val reason = when {
-            !Files.isDirectory(dir) -> "not a directory"
-            !Files.isRegularFile(dir.resolve(SETTINGS_FILE)) -> "no $SETTINGS_FILE in this directory"
-            else -> return readSettings(dir)
-        }
-        return ProjectNotFound(path = dir.toString(), reason = reason)
+        notFound(dir)?.let { return it }
+        return readSettings(dir)
     }
+
+    /**
+     * The module dependencies declared by the modules of [projectDir] that [module] selects:
+     * a module path or a pattern over module paths (see [matchesModulePattern]). Without one,
+     * every module of the build.
+     *
+     * Answers [ProjectNotFound] when [projectDir] is not a directory or holds no settings file.
+     */
+    fun moduleGraph(projectDir: Path, module: String? = null): GraphAnswer {
+        val dir = projectDir.toAbsolutePath().normalize()
+        notFound(dir)?.let { return it }
+        return readModuleGraph(dir, module?.takeIf { it.isNotBlank() } ?: ALL_MODULES)
+    }
+}
+
+/** Why [dir] holds no Gradle build to analyse, or null when it does. */
+private fun notFound(dir: Path): ProjectNotFound? {
+    val reason = when {
+        !Files.isDirectory(dir) -> "not a directory"
+        !Files.isRegularFile(dir.resolve(SETTINGS_FILE)) -> "no $SETTINGS_FILE in this directory"
+        else -> return null
+    }
+    return ProjectNotFound(path = dir.toString(), reason = reason)
 }
