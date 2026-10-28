@@ -69,6 +69,13 @@ fichero y línea), más sus `unresolved`.
           "configuration": "implementation",
           "file": "feature/login/build.gradle.kts",
           "line": 24
+        },
+        {
+          "target": ":core:gone",
+          "configuration": "implementation",
+          "file": "feature/login/build.gradle.kts",
+          "line": 25,
+          "dangling": true
         }
       ],
       "unresolved": []
@@ -80,15 +87,18 @@ fichero y línea), más sus `unresolved`.
 ```
 
 Solo cuentan `implementation`, `api` y `compileOnly` con `project(":x")` o `projects.x.y`; las
-configuraciones de test y las dependencias transitivas quedan fuera. `unanalysedHelpers` cuenta
+configuraciones de test y las dependencias transitivas quedan fuera. Una dependencia cuyo
+destino no es un módulo incluido en `settings.gradle.kts` sale marcada con `"dangling": true`
+(ver [dependencias colgantes](#dependencias-colgantes)). `unanalysedHelpers` cuenta
 por nombre las llamadas a los helpers de dependencias del propio proyecto
 (`commonLibs(project, ...)`): los módulos que añaden son un punto ciego, hay que leer el helper.
 
 **Sin `module`** devuelve el resumen por capas del build entero, que sí necesita
 `archguard.json`: `{"type": "LayerSummary", ...}` con la config usada, los módulos de cada capa,
-la matriz capa → capa (`count` y `allowed` por par declarado), los módulos sin capa
-(`unassigned`), `unanalysedHelpers` y `warnings`. Con eso el agente responde por sí mismo
-preguntas hipotéticas sobre las capas.
+la matriz capa → capa (`count` y `allowed` por par declarado), cuántas dependencias colgantes
+hay (`danglingDependencyCount`, fuera de la matriz), los módulos sin capa (`unassigned`),
+`unanalysedHelpers` y `warnings`. Con eso el agente responde por sí mismo preguntas hipotéticas
+sobre las capas.
 
 ## Tool `check_architecture`
 
@@ -109,11 +119,25 @@ Entrada: `{ "projectPath": "..." }`. Comprueba cada dependencia de módulo contr
       "rule": { "layer": "core", "mayDependOn": ["core"] }
     }
   ],
+  "danglingDependencies": [
+    {
+      "source": ":feature:login",
+      "target": ":core:gone",
+      "configuration": "implementation",
+      "file": "feature/login/build.gradle.kts",
+      "line": 25
+    }
+  ],
   "unassigned": [],
   "unresolved": [],
   "unanalysedHelpers": {},
   "warnings": [],
-  "counts": { "modules": 214, "dependencies": 1906, "violations": 1 }
+  "counts": {
+    "modules": 214,
+    "dependencies": 1906,
+    "violations": 1,
+    "danglingDependencies": 1
+  }
 }
 ```
 
@@ -121,8 +145,21 @@ Cada violación trae los dos módulos, las dos capas, el fichero y la línea de 
 regla de la capa de origen, para no tener que releer la config. `unassigned` son módulos que no
 casan con ninguna capa y no están excluidos (no son violaciones: dales una capa o exclúyelos).
 `unresolved` son inclusiones o dependencias que solo Gradle podría resolver, así que esos módulos
-no se juzgaron. `violations`, `unresolved` y `unanalysedHelpers` vacíos significa que se
-comprobó el build entero y cumple.
+no se juzgaron. `violations`, `danglingDependencies`, `unresolved` y `unanalysedHelpers` vacíos
+significa que se comprobó el build entero y cumple.
+
+### Dependencias colgantes
+
+Una dependencia colgante (*dangling*) apunta a un módulo que `settings.gradle.kts` no incluye,
+sea con `project(":x")` o con un accesor `projects.x.y` que no corresponde a ningún módulo
+incluido. Gradle falla con ellas, así que el guard no las descarta: `check_architecture` las
+lista en `danglingDependencies` (ordenadas por fichero y línea, con el destino tal cual lo
+escribe el script) y las cuenta en `counts.danglingDependencies`.
+
+- Nunca son violaciones ni entran en la matriz capa → capa: no llegan a ningún módulo al que las
+  reglas puedan juzgar, aunque su ruta case con el patrón de una capa.
+- Se reportan para todos los módulos de origen, incluidos los `excluded`: rompen el build
+  independientemente de las capas.
 
 ## Fichero `archguard.json`
 

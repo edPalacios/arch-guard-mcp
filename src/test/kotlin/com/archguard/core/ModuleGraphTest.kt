@@ -127,6 +127,51 @@ class ModuleGraphTest {
     }
 
     @Test
+    fun `a dependency on a module the build does not include is marked dangling`() {
+        val answer = moduleGraph(fixture("layered"), ":core:ui")
+
+        val file = "core/ui/build.gradle.kts"
+        assertEquals(
+            listOf(
+                ModuleDependency(":core:network", "implementation", file, 11),
+                ModuleDependency(
+                    ":feature:account:favorites", "implementation", file, 16, dangling = true,
+                ),
+                ModuleDependency(":feature:account:profile", "implementation", file, 13),
+            ),
+            answer.modules.single().dependencies,
+        )
+    }
+
+    @Test
+    fun `a dangling accessor carries the accessor itself as target`() {
+        val projectDir = project(
+            """
+            dependencies {
+                implementation(projects.feature.favorites)
+            }
+            """,
+        )
+
+        val answer = moduleGraph(projectDir, ":a")
+
+        val detail = answer.modules.single()
+        assertEquals(
+            listOf(
+                ModuleDependency(
+                    target = "projects.feature.favorites",
+                    configuration = "implementation",
+                    file = "a/build.gradle.kts",
+                    line = 2,
+                    dangling = true,
+                ),
+            ),
+            detail.dependencies,
+        )
+        assertTrue(detail.unresolved.isEmpty())
+    }
+
+    @Test
     fun `dependency helpers are counted by name and reported nowhere else`() {
         val answer = moduleGraph(fixture("layered"), "**")
 

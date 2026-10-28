@@ -125,6 +125,126 @@ class CheckArchitectureTest {
     }
 
     @Test
+    fun `a dependency on a module the build does not include is dangling, not a violation`() {
+        val answer = report(fixture("layered"))
+
+        assertEquals(
+            listOf(
+                DanglingDependency(
+                    source = ":core:ui",
+                    target = ":feature:account:favorites",
+                    configuration = "implementation",
+                    file = "core/ui/build.gradle.kts",
+                    line = 16,
+                ),
+            ),
+            answer.danglingDependencies,
+        )
+        assertTrue(answer.violations.none { it.target == ":feature:account:favorites" })
+    }
+
+    @Test
+    fun `a dangling accessor is reported as the accessor it is written as`() {
+        val projectDir = project(
+            settings = """include(":app")""",
+            config = """
+            {
+              "version": 1,
+              "layers": [{ "pattern": ":app", "name": "app" }],
+              "rules": []
+            }
+            """,
+            builds = mapOf(":app" to """dependencies { api(projects.feature.favorites) }"""),
+        )
+
+        val answer = report(projectDir)
+
+        assertEquals(
+            DanglingDependency(
+                source = ":app",
+                target = "projects.feature.favorites",
+                configuration = "api",
+                file = "app/build.gradle.kts",
+                line = 1,
+            ),
+            answer.danglingDependencies.single(),
+        )
+        assertEquals(emptyList<UnresolvedDeclaration>(), answer.unresolved)
+    }
+
+    @Test
+    fun `a dangling dependency of an excluded module is reported too`() {
+        val projectDir = project(
+            settings = """include(":app", ":sample:playground")""",
+            config = """
+            {
+              "version": 1,
+              "layers": [{ "pattern": ":app", "name": "app" }],
+              "rules": [],
+              "excluded": [":sample:**"]
+            }
+            """,
+            builds = mapOf(
+                ":sample:playground" to """dependencies { implementation(project(":gone")) }""",
+            ),
+        )
+
+        val answer = report(projectDir)
+
+        assertEquals(
+            DanglingDependency(
+                source = ":sample:playground",
+                target = ":gone",
+                configuration = "implementation",
+                file = "sample/playground/build.gradle.kts",
+                line = 1,
+            ),
+            answer.danglingDependencies.single(),
+        )
+    }
+
+    @Test
+    fun `dangling dependencies are sorted by file then line`() {
+        val projectDir = project(
+            settings = """include(":app", ":core:ui")""",
+            config = """
+            {
+              "version": 1,
+              "layers": [
+                { "pattern": ":app", "name": "app" },
+                { "pattern": ":core:**", "name": "core" }
+              ],
+              "rules": []
+            }
+            """,
+            builds = mapOf(
+                ":core:ui" to """
+                dependencies {
+                    implementation(project(":gone"))
+                }
+                """,
+                ":app" to """
+                dependencies {
+                    implementation(project(":also-gone"))
+                    implementation(project(":gone"))
+                }
+                """,
+            ),
+        )
+
+        val answer = report(projectDir)
+
+        assertEquals(
+            listOf(
+                Triple("app/build.gradle.kts", 2, ":also-gone"),
+                Triple("app/build.gradle.kts", 3, ":gone"),
+                Triple("core/ui/build.gradle.kts", 2, ":gone"),
+            ),
+            answer.danglingDependencies.map { Triple(it.file, it.line, it.target) },
+        )
+    }
+
+    @Test
     fun `a declaration only Gradle could resolve is reported, not judged`() {
         val answer = report(fixture("layered"))
 
@@ -185,7 +305,15 @@ class CheckArchitectureTest {
     fun `the counts size up what was checked`() {
         val answer = report(fixture("layered"))
 
-        assertEquals(ReportCounts(modules = 11, dependencies = 29, violations = 2), answer.counts)
+        assertEquals(
+            ReportCounts(
+                modules = 11,
+                dependencies = 29,
+                violations = 2,
+                danglingDependencies = 1,
+            ),
+            answer.counts,
+        )
     }
 
     @Test

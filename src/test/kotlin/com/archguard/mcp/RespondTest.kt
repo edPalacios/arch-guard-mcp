@@ -4,6 +4,7 @@ import com.archguard.core.ArchitectureConfig
 import com.archguard.core.ArchitectureReport
 import com.archguard.core.ConfigInvalid
 import com.archguard.core.ConfigMissing
+import com.archguard.core.DanglingDependency
 import com.archguard.core.LayerEdge
 import com.archguard.core.LayerModules
 import com.archguard.core.LayerPattern
@@ -49,6 +50,13 @@ class RespondTest {
                         file = "feature/orders/build.gradle.kts",
                         line = 12,
                     ),
+                    ModuleDependency(
+                        target = ":core:gone",
+                        configuration = "api",
+                        file = "feature/orders/build.gradle.kts",
+                        line = 13,
+                        dangling = true,
+                    ),
                 ),
                 unresolved = listOf(
                     UnresolvedDeclaration(
@@ -79,6 +87,7 @@ class RespondTest {
             LayerModules("feature", listOf(":feature:orders")),
         ),
         matrix = listOf(LayerEdge(from = "feature", to = "app", count = 1, allowed = false)),
+        danglingDependencyCount = 2,
         unassigned = listOf(":legacy"),
         unanalysedHelpers = mapOf("commonLibs" to 3),
         warnings = listOf("rule for layer 'feature' allows undefined layer 'core'"),
@@ -96,11 +105,25 @@ class RespondTest {
                 rule = LayerRule("core", listOf("core")),
             ),
         ),
+        danglingDependencies = listOf(
+            DanglingDependency(
+                source = ":core:ui",
+                target = ":core:gone",
+                configuration = "api",
+                file = "core/ui/build.gradle.kts",
+                line = 15,
+            ),
+        ),
         unassigned = listOf(":legacy"),
         unresolved = listOf(UnresolvedDeclaration("uiModule", "core/ui/build.gradle.kts", 14)),
         unanalysedHelpers = mapOf("commonLibs" to 3),
         warnings = listOf("layer 'feature' matches no module"),
-        counts = ReportCounts(modules = 2, dependencies = 4, violations = 1),
+        counts = ReportCounts(
+            modules = 2,
+            dependencies = 4,
+            violations = 1,
+            danglingDependencies = 1,
+        ),
     )
 
     // The real text is one constant, pinned where the core answers; here only its field counts.
@@ -158,6 +181,13 @@ class RespondTest {
                                 "configuration": "implementation",
                                 "file": "feature/orders/build.gradle.kts",
                                 "line": 12
+                            },
+                            {
+                                "target": ":core:gone",
+                                "configuration": "api",
+                                "file": "feature/orders/build.gradle.kts",
+                                "line": 13,
+                                "dangling": true
                             }
                         ],
                         "unresolved": [
@@ -235,6 +265,7 @@ class RespondTest {
                         "allowed": false
                     }
                 ],
+                "danglingDependencyCount": 2,
                 "unassigned": [
                     ":legacy"
                 ],
@@ -274,6 +305,15 @@ class RespondTest {
                         }
                     }
                 ],
+                "danglingDependencies": [
+                    {
+                        "source": ":core:ui",
+                        "target": ":core:gone",
+                        "configuration": "api",
+                        "file": "core/ui/build.gradle.kts",
+                        "line": 15
+                    }
+                ],
                 "unassigned": [
                     ":legacy"
                 ],
@@ -293,7 +333,8 @@ class RespondTest {
                 "counts": {
                     "modules": 2,
                     "dependencies": 4,
-                    "violations": 1
+                    "violations": 1,
+                    "danglingDependencies": 1
                 }
             }
             """.trimIndent(),

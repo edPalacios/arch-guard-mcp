@@ -70,6 +70,9 @@ data class ModuleDependencies(
  * @property layers the modules of each layer, in config order.
  * @property matrix the layer → layer edges the build declares, in config order. Pairs with no
  *   module dependency are left out: what [config] allows but nobody declares is derivable.
+ *   Dangling dependencies cross no layers, so they are counted nowhere in it.
+ * @property danglingDependencyCount how many dangling dependencies the build declares, so the
+ *   matrix is read knowing what it leaves out. `check_architecture` lists them one by one.
  * @property unassigned modules that match no layer and are not excluded, sorted by path.
  * @property unanalysedHelpers how many calls each dependency helper got, by helper name: the
  *   dependencies it declares are invisible to the guard, so the agent knows the blind spot.
@@ -81,6 +84,7 @@ data class LayerSummary(
     val config: ArchitectureConfig,
     val layers: List<LayerModules>,
     val matrix: List<LayerEdge>,
+    val danglingDependencyCount: Int,
     val unassigned: List<String>,
     val unanalysedHelpers: Map<String, Int>,
     val warnings: List<String>,
@@ -121,6 +125,9 @@ data class LayerEdge(
  * What the build does that its architecture config does not allow.
  *
  * @property violations the module dependencies no layer rule allows, sorted by file then line.
+ * @property danglingDependencies the module dependencies pointing at a module the build does not
+ *   include, sorted by file then line. Never violations: Gradle fails on them whatever the
+ *   layers say, so they are reported for every module, the excluded ones included.
  * @property unassigned modules that match no layer and are not excluded, sorted by path. Not
  *   violations: the config either grows a layer for them or excludes them.
  * @property unresolved the module inclusions and dependency declarations that need Gradle to be
@@ -134,6 +141,7 @@ data class LayerEdge(
 @SerialName("ArchitectureReport")
 data class ArchitectureReport(
     val violations: List<Violation>,
+    val danglingDependencies: List<DanglingDependency>,
     val unassigned: List<String>,
     val unresolved: List<UnresolvedDeclaration>,
     val unanalysedHelpers: Map<String, Int>,
@@ -166,18 +174,42 @@ data class Violation(
 )
 
 /**
+ * A module dependency whose target is not a module of the build, so Gradle fails on it. Never a
+ * violation: no layer rule has anything to say about a module that does not exist.
+ *
+ * @property source the module that declares the dependency.
+ * @property target the module depended on, as the build script writes it: a module path for
+ *   `project(":x")`, the accessor itself for `projects.x.y`.
+ * @property configuration the configuration it is declared in: `implementation`, `api` or
+ *   `compileOnly`.
+ * @property file path relative to the project root, with `/`.
+ * @property line 1-based line of the declaration in [file].
+ */
+@Serializable
+data class DanglingDependency(
+    val source: String,
+    val target: String,
+    val configuration: String,
+    val file: String,
+    val line: Int,
+)
+
+/**
  * How much the report covers, counted over the whole build, excluded modules included.
  *
  * @property modules how many modules the build declares.
- * @property dependencies how many module dependencies they declare, one per source module →
- *   target module pair.
+ * @property dependencies how many module dependencies they declare on modules of the build, one
+ *   per source module → target module pair.
  * @property violations how many of those dependencies no layer rule allows.
+ * @property danglingDependencies how many dependencies point at a module the build does not
+ *   include, counted apart from [dependencies]: they reach no module to be judged against.
  */
 @Serializable
 data class ReportCounts(
     val modules: Int,
     val dependencies: Int,
     val violations: Int,
+    val danglingDependencies: Int,
 )
 
 /**
@@ -186,7 +218,8 @@ data class ReportCounts(
  * @property path the module path, as in `:feature:orders:history`.
  * @property buildFile path relative to the project root with `/`, or null when the module has
  *   no `build.gradle.kts`.
- * @property dependencies its module dependencies, sorted by target then configuration.
+ * @property dependencies its module dependencies, sorted by target then configuration, the
+ *   dangling ones among them marked as such.
  * @property unresolved its dependency declarations that need Gradle to be resolved.
  */
 @Serializable
@@ -198,14 +231,17 @@ data class ModuleDetail(
 )
 
 /**
- * A directed edge to another module of the build, declared in a production configuration.
+ * A directed edge to another module, declared in a production configuration.
  *
- * @property target the module depended on.
+ * @property target the module depended on, as the build script writes it when it is no module
+ *   of the build (see [dangling]).
  * @property configuration the configuration it is declared in: `implementation`, `api` or
  *   `compileOnly`.
  * @property file path relative to the project root, with `/`.
  * @property line 1-based line of the declaration in [file]; the first one when the same edge
  *   is declared more than once.
+ * @property dangling whether [target] is no module of the build, which makes this a dangling
+ *   dependency: Gradle fails on it, and it crosses no layers.
  */
 @Serializable
 data class ModuleDependency(
@@ -213,6 +249,7 @@ data class ModuleDependency(
     val configuration: String,
     val file: String,
     val line: Int,
+    val dangling: Boolean = false,
 )
 
 /**

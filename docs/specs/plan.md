@@ -66,7 +66,7 @@ Load `archguard.json` and answer `moduleGraph` without a filter.
 5. Against the reference project, the proposal yields layers `app`, `feature`, `component`, `shared-component`, `core` with the rules in the spec's reference section, and the rule sources include `CONTRIBUTING.md`, `docs/architecture.md` and `:architecture-tests`.
 6. README documents the three tools and `archguard.json`.
 
-## [ ] T6: Dangling dependencies
+## [x] T6: Dangling dependencies
 
 Found while testing on the reference project: `implementation(project(":feature:account:favorites"))`, pointing at a module that `settings.gradle.kts` does not include, was silently dropped. Gradle fails on it, and static reading can detect it reliably, so the guard reports it.
 

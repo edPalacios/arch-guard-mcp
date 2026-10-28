@@ -63,6 +63,19 @@ class LayerSummaryTest {
     }
 
     @Test
+    fun `a dangling dependency is counted, never a cell of the matrix`() {
+        val answer = layerSummary(fixture("layered"))
+
+        assertEquals(1, answer.danglingDependencyCount)
+        // :core:ui declares two dependencies matching the feature layer's pattern; only the one
+        // reaching a module of the build crosses a layer.
+        assertEquals(
+            LayerEdge("core", "feature", 1, allowed = false),
+            answer.matrix.single { it.from == "core" && it.to == "feature" },
+        )
+    }
+
+    @Test
     fun `a layer may depend on itself only when its rule lists it`() {
         val answer = layerSummary(fixture("layered"))
 

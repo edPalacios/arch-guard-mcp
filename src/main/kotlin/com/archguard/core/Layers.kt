@@ -60,6 +60,32 @@ private fun unassignedOf(
     layerOfModule: Map<String, String?>,
 ): List<String> = layerOfModule.filterValues { it == null }.keys.filter { !isExcluded(config, it) }
 
+/**
+ * [module]'s dependencies that reach a module of the build, the only ones that cross layers: a
+ * dangling one points at nothing the config can place, whatever pattern its target would match.
+ */
+private fun layeredDependenciesOf(module: ModuleDetail): List<ModuleDependency> =
+    module.dependencies.filterNot { it.dangling }
+
+/** The dangling dependencies [graph] declares, sorted by file then line. */
+private fun danglingOf(graph: ModuleDependencies): List<DanglingDependency> = byFileThenLine(
+    // Every source module, the excluded ones included: Gradle fails on these before any layer
+    // rule is read.
+    graph.modules.flatMap { module ->
+        module.dependencies.filter { it.dangling }.map {
+            DanglingDependency(
+                source = module.path,
+                target = it.target,
+                configuration = it.configuration,
+                file = it.file,
+                line = it.line,
+            )
+        }
+    },
+    DanglingDependency::file,
+    DanglingDependency::line,
+)
+
 /** Sorted the way a reader walks the build: by file, then line. */
 private fun <T> byFileThenLine(items: List<T>, file: (T) -> String, line: (T) -> Int): List<T> =
     items.sortedWith(compareBy(file, line))
@@ -73,6 +99,7 @@ internal fun layerSummary(graph: ModuleDependencies, config: ArchitectureConfig)
         config = config,
         layers = layers,
         matrix = matrixOf(graph, config, layerOfModule, layerNames(config)),
+        danglingDependencyCount = danglingOf(graph).size,
         unassigned = unassignedOf(config, layerOfModule),
         unanalysedHelpers = graph.unanalysedHelpers,
         warnings = warningsOf(config, layers),
@@ -94,9 +121,11 @@ internal fun architectureReport(
     val graph = build.graph
     val layerOfModule = layerAssignment(config, graph)
     val violations = violationsOf(graph, config, layerOfModule)
+    val dangling = danglingOf(graph)
 
     return ArchitectureReport(
         violations = violations,
+        danglingDependencies = dangling,
         unassigned = unassignedOf(config, layerOfModule),
         // Inclusions and dependencies alike: a module the guard never saw included was judged
         // as little as one it could not resolve a dependency on.
@@ -110,18 +139,19 @@ internal fun architectureReport(
         counts = ReportCounts(
             modules = graph.modules.size,
             dependencies = graph.modules.sumOf { module ->
-                module.dependencies.distinctBy { it.target }.size
+                layeredDependenciesOf(module).distinctBy { it.target }.size
             },
             violations = violations.size,
+            danglingDependencies = dangling.size,
         ),
     )
 }
 
 /**
  * Every module dependency whose source layer's rule does not allow its target layer. A module
- * outside every layer, and a dependency on one, cross no layers and so break no rule: an
- * excluded module appears on neither side. Each source module → target module pair is one
- * violation, reported at the first line that declares it.
+ * outside every layer, a dependency on one, and a dangling dependency cross no layers and so
+ * break no rule: an excluded module appears on neither side. Each source module → target module
+ * pair is one violation, reported at the first line that declares it.
  */
 private fun violationsOf(
     graph: ModuleDependencies,
@@ -130,7 +160,7 @@ private fun violationsOf(
 ): List<Violation> {
     val violations = graph.modules.flatMap { module ->
         val from = layerOfModule[module.path] ?: return@flatMap emptyList()
-        module.dependencies
+        layeredDependenciesOf(module)
             .sortedBy { it.line }
             .distinctBy { it.target }
             .mapNotNull { dependency ->
@@ -153,8 +183,8 @@ private fun violationsOf(
 /**
  * One cell per layer → layer pair the build declares a module dependency for, ordered by the
  * config's layers. Each source module → target module pair counts once, however many times it
- * is declared. Modules outside every layer, and dependencies on modules that are not part of
- * the build, cross no layers and are counted nowhere.
+ * is declared. Modules outside every layer, and dangling dependencies, cross no layers and are
+ * counted nowhere.
  */
 private fun matrixOf(
     graph: ModuleDependencies,
@@ -165,7 +195,7 @@ private fun matrixOf(
     val counts = mutableMapOf<Pair<String, String>, Int>()
     for (module in graph.modules) {
         val from = layerOfModule[module.path] ?: continue
-        for (target in module.dependencies.map { it.target }.distinct()) {
+        for (target in layeredDependenciesOf(module).map { it.target }.distinct()) {
             val to = layerOfModule[target] ?: continue
             counts.merge(from to to, 1, Int::plus)
         }

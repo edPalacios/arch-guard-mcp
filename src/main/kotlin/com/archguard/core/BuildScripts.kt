@@ -30,6 +30,18 @@ private data class ModuleScript(
 )
 
 /**
+ * The modules the settings file includes, by the two names a build script can reach them by, so
+ * a dependency on anything else is recognised as dangling.
+ *
+ * @property paths every included module path.
+ * @property byAccessor the module path each type-safe project accessor stands for.
+ */
+private data class Included(
+    val paths: Set<String>,
+    val byAccessor: Map<String, String>,
+)
+
+/**
  * What one pass over [projectDir]'s build found.
  *
  * @property graph the module dependencies of the modules the filter selected.
@@ -50,10 +62,10 @@ internal data class BuildGraph(
 internal fun readBuild(projectDir: Path, filter: String): BuildGraph {
     val settings = readSettings(projectDir)
     val modules = settings.modules
-    val byAccessor = modules.associateBy(::accessorOf)
+    val included = Included(paths = modules.toSet(), byAccessor = modules.associateBy(::accessorOf))
     val scripts = modules
         .filter { matchesModulePattern(filter, it) }
-        .map { readModuleScript(projectDir, it, byAccessor) }
+        .map { readModuleScript(projectDir, it, included) }
 
     val helpers = sortedMapOf<String, Int>()
     for (script in scripts) {
@@ -76,15 +88,16 @@ internal fun readBuild(projectDir: Path, filter: String): BuildGraph {
 }
 
 /**
- * Reads [module]'s `build.gradle.kts`: the module dependencies of its `dependencies` blocks,
- * the declarations that need Gradle to be resolved (ADR 0001), and how often each dependency
- * helper is called. A call that is not a production configuration and takes `project` as an
- * argument is such a helper: it is counted, never resolved and reported nowhere else.
+ * Reads [module]'s `build.gradle.kts`: the module dependencies of its `dependencies` blocks —
+ * the ones pointing outside [included] marked as dangling —, the declarations that need Gradle
+ * to be resolved (ADR 0001), and how often each dependency helper is called. A call that is not
+ * a production configuration and takes `project` as an argument is such a helper: it is counted,
+ * never resolved and reported nowhere else.
  */
 private fun readModuleScript(
     projectDir: Path,
     module: String,
-    byAccessor: Map<String, String>,
+    included: Included,
 ): ModuleScript {
     val buildFile = module.removePrefix(":").replace(':', '/') + "/$BUILD_FILE"
     val file = projectDir.resolve(buildFile)
@@ -115,13 +128,14 @@ private fun readModuleScript(
 
             for (argument in arguments) {
                 val named = projectArgument(argument) ?: continue // not a module dependency
-                val target = targetModule(named.text, byAccessor)
+                val target = targetModule(named.text, included)
                 if (target != null) {
                     dependencies += ModuleDependency(
                         target = target,
                         configuration = configuration,
                         file = buildFile,
                         line = lineAt(argument.offset),
+                        dangling = target !in included.paths,
                     )
                 } else {
                     unresolved += UnresolvedDeclaration(
@@ -147,10 +161,14 @@ private fun readModuleScript(
     )
 }
 
-/** The module [named] identifies, or null when Gradle would be needed to resolve it. */
-private fun targetModule(named: String, byAccessor: Map<String, String>): String? =
+/**
+ * The module [named] identifies, or null when Gradle would be needed to resolve it. An accessor
+ * that stands for no included module names a module all the same — the one the build script
+ * believes in — so it is reported as written, and the caller finds it dangling.
+ */
+private fun targetModule(named: String, included: Included): String? =
     if (PROJECT_ACCESSOR.matches(named)) {
-        byAccessor[named]
+        included.byAccessor[named] ?: named
     } else {
         plainStringLiteral(named)?.takeIf { it.isNotBlank() }?.let(::modulePath)
     }

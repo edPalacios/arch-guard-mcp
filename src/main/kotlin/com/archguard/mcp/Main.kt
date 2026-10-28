@@ -82,10 +82,14 @@ private fun registerGetModuleGraph(server: Server) {
             "whole build, which needs archguard.json in the project root — the modules of each " +
             "layer, the layer-to-layer matrix with a count and an 'allowed' flag per pair, the " +
             "modules in no layer, and the config itself, so hypothetical questions about the " +
-            "layers can be answered from this one answer. With 'module': the detailed " +
+            "layers can be answered from this one answer; dependencies on a module the build " +
+            "does not include cross no layers, so the matrix leaves them out and " +
+            "'danglingDependencyCount' says how many there are. With 'module': the detailed " +
             "dependencies of the selected modules (target module, configuration, file and " +
-            "line), which needs no config, plus the declarations only Gradle could resolve " +
-            "(variables, string templates) under 'unresolved'. Either way, calls to the " +
+            "line), which needs no config, each dependency on a module the build does not " +
+            "include marked 'dangling': true — Gradle fails on those, so fix them first — " +
+            "plus the declarations only Gradle could resolve (variables, string templates) under " +
+            "'unresolved'. Either way, calls to the " +
             "project's own dependency helpers are counted by name under 'unanalysedHelpers': " +
             "the modules those add are a blind spot, so read the helper to learn what it " +
             "declares. Static analysis only: Gradle is not executed.",
@@ -117,7 +121,12 @@ private fun registerCheckArchitecture(server: Server) {
             "and rules of archguard.json in its root, and returns the dependencies no rule " +
             "allows under 'violations': source and target module, the layer of each, the file " +
             "and line that declares it, and the source layer's rule, so the fix is visible " +
-            "without reading the config again. Also what the check could not cover: 'unassigned' " +
+            "without reading the config again. 'danglingDependencies' lists the dependencies " +
+            "pointing at a module settings.gradle.kts does not include (source module, target " +
+            "as the script writes it, configuration, file and line): Gradle fails on those " +
+            "whatever the layers say, they are never violations, and they are reported for " +
+            "every module, the excluded ones included. Also what the check could not cover: " +
+            "'unassigned' " +
             "modules match no layer and are nobody's violation (give them a layer or exclude " +
             "them in the config), 'unresolved' declarations are module inclusions or " +
             "dependencies only Gradle could resolve (variables, string templates), so the " +
@@ -125,8 +134,9 @@ private fun registerCheckArchitecture(server: Server) {
             "to the project's own dependency helpers by name — the modules those add are a " +
             "blind spot, so read the helper to learn what it declares. 'warnings' reports what " +
             "the config claims and the build does not bear out, such as a layer matching no " +
-            "module; 'counts' sizes up the modules and dependencies checked. An empty " +
-            "'violations' list with empty 'unresolved' and 'unanalysedHelpers' means the whole " +
+            "module; 'counts' sizes up the modules and dependencies checked and counts the " +
+            "violations and dangling dependencies. An empty 'violations' list with empty " +
+            "'danglingDependencies', 'unresolved' and 'unanalysedHelpers' means the whole " +
             "build was checked and holds. Without archguard.json the call is an error carrying " +
             "the expected format, a config proposed from the build itself, the dependencies " +
             "that proposal leaves forbidden under 'reviewMarks', and the files and modules that " +
