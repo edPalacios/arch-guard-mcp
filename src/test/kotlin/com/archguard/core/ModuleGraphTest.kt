@@ -46,8 +46,8 @@ class ModuleGraphTest {
     }
 
     @Test
-    fun `an omitted filter covers every module of the build`() {
-        val answer = moduleGraph(fixture("layered"), null)
+    fun `the pattern of every module covers the whole build`() {
+        val answer = moduleGraph(fixture("layered"), "**")
 
         assertEquals("**", answer.filter)
         assertEquals(11, answer.modules.size)
@@ -130,7 +130,7 @@ class ModuleGraphTest {
 
     @Test
     fun `dependency helpers are counted by name and reported nowhere else`() {
-        val answer = moduleGraph(fixture("layered"), null)
+        val answer = moduleGraph(fixture("layered"), "**")
 
         assertEquals(mapOf("commonLibs" to 1), answer.unanalysedHelpers)
         assertTrue(answer.modules.none { detail -> detail.dependencies.any { "commonLibs" in it.target } })
@@ -148,7 +148,7 @@ class ModuleGraphTest {
             """,
         )
 
-        val answer = moduleGraph(projectDir, null)
+        val answer = moduleGraph(projectDir, "**")
 
         assertTrue(answer.unanalysedHelpers.isEmpty())
     }

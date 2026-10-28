@@ -35,7 +35,7 @@ Read each module's `build.gradle.kts` and expose the detail view.
 6. The `get_module_graph` tool exists with an optional `module` argument and a description written for agents.
 7. Against the reference project, `get_module_graph` for `:feature:orders:history` lists its distinct module dependencies, reports `commonLibs`, `platformLibs`, `designLibs` in `unanalysedHelpers`, and answers in under one second.
 
-## [ ] T3: Architecture config and the layer summary
+## [x] T3: Architecture config and the layer summary
 
 Load `archguard.json` and answer `moduleGraph` without a filter.
 

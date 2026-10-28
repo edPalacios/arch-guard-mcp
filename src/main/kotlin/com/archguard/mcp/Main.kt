@@ -76,18 +76,20 @@ private fun registerGetModuleGraph(server: Server) {
     server.addTool(
         name = "get_module_graph",
         title = "Get module dependencies",
-        description = "Reads the build.gradle.kts files of a Gradle project and returns, for " +
-            "each module, the other modules it depends on directly: target module, " +
-            "configuration, file and line of the declaration. Only implementation, api and " +
-            "compileOnly with project(\":x\") or projects.x.y count; test configurations and " +
-            "transitive dependencies are out of scope. Use 'module' to focus on one module " +
-            "(\":feature:orders:history\") or on a group of them with a pattern, where '*' " +
-            "matches one path segment and '**' any number (\":feature:**\"); omit it for every " +
-            "module. Declarations that only Gradle could resolve (variables, string templates) " +
-            "come back under 'unresolved', and calls to the project's own dependency helpers " +
-            "are counted by name under 'unanalysedHelpers': the modules those add are a blind " +
-            "spot, so read the helper to learn what it declares. Static analysis only: Gradle " +
-            "is not executed.",
+        description = "Reads the build.gradle.kts files of a Gradle project and returns how its " +
+            "modules depend on each other. Only implementation, api and compileOnly with " +
+            "project(\":x\") or projects.x.y count; test configurations and transitive " +
+            "dependencies are out of scope. Without 'module': the per-layer summary of the " +
+            "whole build, which needs archguard.json in the project root — the modules of each " +
+            "layer, the layer-to-layer matrix with a count and an 'allowed' flag per pair, the " +
+            "modules in no layer, and the config itself, so hypothetical questions about the " +
+            "layers can be answered from this one answer. With 'module': the detailed " +
+            "dependencies of the selected modules (target module, configuration, file and " +
+            "line), which needs no config, plus the declarations only Gradle could resolve " +
+            "(variables, string templates) under 'unresolved'. Either way, calls to the " +
+            "project's own dependency helpers are counted by name under 'unanalysedHelpers': " +
+            "the modules those add are a blind spot, so read the helper to learn what it " +
+            "declares. Static analysis only: Gradle is not executed.",
         inputSchema = ToolSchema(
             properties = buildJsonObject {
                 putJsonObject("projectPath") {

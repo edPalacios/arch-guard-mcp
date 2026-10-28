@@ -1,5 +1,13 @@
 package com.archguard.mcp
 
+import com.archguard.core.ArchitectureConfig
+import com.archguard.core.ConfigInvalid
+import com.archguard.core.ConfigMissing
+import com.archguard.core.LayerEdge
+import com.archguard.core.LayerModules
+import com.archguard.core.LayerPattern
+import com.archguard.core.LayerRule
+import com.archguard.core.LayerSummary
 import com.archguard.core.ModuleDependencies
 import com.archguard.core.ModuleDependency
 import com.archguard.core.ModuleDetail
@@ -50,6 +58,28 @@ class RespondTest {
     )
 
     private val projectNotFound = ProjectNotFound(path = "/tmp/nowhere", reason = "not a directory")
+
+    private val config = ArchitectureConfig(
+        version = 1,
+        layers = listOf(LayerPattern(":app", "app"), LayerPattern(":feature:**", "feature")),
+        rules = listOf(LayerRule("feature", listOf("core"))),
+        excluded = listOf(":sample:**"),
+    )
+
+    private val layerSummary = LayerSummary(
+        config = config,
+        layers = listOf(
+            LayerModules("app", listOf(":app")),
+            LayerModules("feature", listOf(":feature:orders")),
+        ),
+        matrix = listOf(LayerEdge(from = "feature", to = "app", count = 1, allowed = false)),
+        unassigned = listOf(":legacy"),
+        unanalysedHelpers = mapOf("commonLibs" to 3),
+        warnings = listOf("rule for layer 'feature' allows undefined layer 'core'"),
+    )
+
+    // The real text is one constant, pinned where the core answers; here only its field counts.
+    private val expectedFormat = "archguard.json: version, layers, rules, excluded"
 
     @Test
     fun `the module list wire format`() {
@@ -120,6 +150,128 @@ class RespondTest {
                 "warnings": [
                     "no module matches ':nope'"
                 ]
+            }
+            """.trimIndent(),
+            text(result),
+        )
+    }
+
+    @Test
+    fun `the layer summary wire format`() {
+        val result = respond(layerSummary)
+
+        assertEquals(
+            """
+            {
+                "type": "LayerSummary",
+                "config": {
+                    "version": 1,
+                    "layers": [
+                        {
+                            "pattern": ":app",
+                            "name": "app"
+                        },
+                        {
+                            "pattern": ":feature:**",
+                            "name": "feature"
+                        }
+                    ],
+                    "rules": [
+                        {
+                            "layer": "feature",
+                            "mayDependOn": [
+                                "core"
+                            ]
+                        }
+                    ],
+                    "excluded": [
+                        ":sample:**"
+                    ]
+                },
+                "layers": [
+                    {
+                        "layer": "app",
+                        "modules": [
+                            ":app"
+                        ]
+                    },
+                    {
+                        "layer": "feature",
+                        "modules": [
+                            ":feature:orders"
+                        ]
+                    }
+                ],
+                "matrix": [
+                    {
+                        "from": "feature",
+                        "to": "app",
+                        "count": 1,
+                        "allowed": false
+                    }
+                ],
+                "unassigned": [
+                    ":legacy"
+                ],
+                "unanalysedHelpers": {
+                    "commonLibs": 3
+                },
+                "warnings": [
+                    "rule for layer 'feature' allows undefined layer 'core'"
+                ]
+            }
+            """.trimIndent(),
+            text(result),
+        )
+    }
+
+    @Test
+    fun `the invalid config wire format`() {
+        val result = respond(
+            ConfigInvalid(
+                file = "archguard.json",
+                problems = listOf("missing required field 'rules'"),
+                expectedFormat = expectedFormat,
+            ),
+        )
+
+        assertEquals(
+            """
+            {
+                "type": "ConfigInvalid",
+                "file": "archguard.json",
+                "problems": [
+                    "missing required field 'rules'"
+                ],
+                "expectedFormat": "archguard.json: version, layers, rules, excluded"
+            }
+            """.trimIndent(),
+            text(result),
+        )
+    }
+
+    @Test
+    fun `the missing config wire format`() {
+        val result = respond(
+            ConfigMissing(
+                file = "archguard.json",
+                expectedFormat = expectedFormat,
+                proposedConfig = ArchitectureConfig(1, emptyList(), emptyList()),
+            ),
+        )
+
+        assertEquals(
+            """
+            {
+                "type": "ConfigMissing",
+                "file": "archguard.json",
+                "expectedFormat": "archguard.json: version, layers, rules, excluded",
+                "proposedConfig": {
+                    "version": 1,
+                    "layers": [],
+                    "rules": [],
+                    "excluded": []
+                }
             }
             """.trimIndent(),
             text(result),

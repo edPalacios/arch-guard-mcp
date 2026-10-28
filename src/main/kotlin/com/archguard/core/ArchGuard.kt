@@ -22,16 +22,24 @@ object ArchGuard {
     }
 
     /**
-     * The module dependencies declared by the modules of [projectDir] that [module] selects:
-     * a module path or a pattern over module paths (see [matchesModulePattern]). Without one,
-     * every module of the build.
+     * With [module] — a module path or a pattern over module paths (see [matchesModulePattern])
+     * — the [ModuleDependencies] the selected modules declare, which needs no config.
+     *
+     * Without it, the [LayerSummary] of the whole build, which needs `archguard.json`: it
+     * answers [ConfigMissing] when the project has none and [ConfigInvalid] when it cannot be
+     * used.
      *
      * Answers [ProjectNotFound] when [projectDir] is not a directory or holds no settings file.
      */
     fun moduleGraph(projectDir: Path, module: String? = null): GraphAnswer {
         val dir = projectDir.toAbsolutePath().normalize()
         notFound(dir)?.let { return it }
-        return readModuleGraph(dir, module?.takeIf { it.isNotBlank() } ?: ALL_MODULES)
+        val filter = module?.takeIf { it.isNotBlank() }
+        if (filter != null) return readModuleGraph(dir, filter)
+        return when (val read = readConfig(dir)) {
+            is ConfigRead.Unusable -> read.failure
+            is ConfigRead.Loaded -> layerSummary(readModuleGraph(dir, ALL_MODULES), read.config)
+        }
     }
 }
 

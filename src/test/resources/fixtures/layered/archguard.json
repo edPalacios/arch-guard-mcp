@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "layers": [
+    { "pattern": ":app", "name": "app" },
+    { "pattern": ":feature:**", "name": "feature" },
+    { "pattern": ":component:**", "name": "component" },
+    { "pattern": ":shared-component:**", "name": "shared-component" },
+    { "pattern": ":core:**", "name": "core" }
+  ],
+  "rules": [
+    { "layer": "app", "mayDependOn": ["feature", "component", "shared-component", "core"] },
+    { "layer": "feature", "mayDependOn": ["component", "shared-component", "core"] },
+    { "layer": "component", "mayDependOn": ["shared-component", "core"] },
+    { "layer": "shared-component", "mayDependOn": ["core"] },
+    { "layer": "core", "mayDependOn": ["core"] }
+  ],
+  "excluded": [":sample:**"]
+}

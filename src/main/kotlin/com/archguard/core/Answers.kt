@@ -59,6 +59,61 @@ data class ModuleDependencies(
 ) : GraphAnswer
 
 /**
+ * How the modules of the analysed build sit in the layers of its architecture config.
+ *
+ * @property config the config the summary was computed with, so the agent can answer
+ *   hypothetical questions about other layers and rules itself.
+ * @property layers the modules of each layer, in config order.
+ * @property matrix the layer → layer edges the build declares, in config order. Pairs with no
+ *   module dependency are left out: what [config] allows but nobody declares is derivable.
+ * @property unassigned modules that match no layer and are not excluded, sorted by path.
+ * @property unanalysedHelpers how many calls each dependency helper got, by helper name: the
+ *   dependencies it declares are invisible to the guard, so the agent knows the blind spot.
+ * @property warnings what the guard noticed without stopping, such as an empty layer.
+ */
+@Serializable
+@SerialName("LayerSummary")
+data class LayerSummary(
+    val config: ArchitectureConfig,
+    val layers: List<LayerModules>,
+    val matrix: List<LayerEdge>,
+    val unassigned: List<String>,
+    val unanalysedHelpers: Map<String, Int>,
+    val warnings: List<String>,
+) : GraphAnswer
+
+/**
+ * One layer and the modules assigned to it.
+ *
+ * @property layer the layer name, as the config spells it.
+ * @property modules the module paths it holds, sorted.
+ */
+@Serializable
+data class LayerModules(
+    val layer: String,
+    val modules: List<String>,
+)
+
+/**
+ * One cell of the layer → layer matrix: how many module dependencies cross from one layer to
+ * another, and whether the source layer's rule allows them.
+ *
+ * @property from the layer the depending modules belong to.
+ * @property to the layer the modules depended on belong to.
+ * @property count how many distinct module dependencies go from [from] to [to]: one per source
+ *   module → target module pair, however many times the build declares it.
+ * @property allowed whether [from]'s layer rule lists [to]. When false, every dependency behind
+ *   [count] is a violation.
+ */
+@Serializable
+data class LayerEdge(
+    val from: String,
+    val to: String,
+    val count: Int,
+    val allowed: Boolean,
+)
+
+/**
  * One module and what it declares in its build script.
  *
  * @property path the module path, as in `:feature:orders:history`.
@@ -104,6 +159,37 @@ data class ModuleDependency(
 data class ProjectNotFound(
     val path: String,
     val reason: String,
+) : Failure
+
+/**
+ * The architecture config exists but cannot be used.
+ *
+ * @property file the config's path relative to the project root.
+ * @property problems what is wrong with it, in the order they were found.
+ * @property expectedFormat the format the config is expected to follow.
+ */
+@Serializable
+@SerialName("ConfigInvalid")
+data class ConfigInvalid(
+    val file: String,
+    val problems: List<String>,
+    val expectedFormat: String,
+) : Failure
+
+/**
+ * The analysed project has no architecture config, so the guard has no layers to judge it by.
+ *
+ * @property file where the config is expected, relative to the project root.
+ * @property expectedFormat the format the agent writes it in.
+ * @property proposedConfig a config inferred from the build, for the agent to review and write.
+ *   Never applied by the guard itself.
+ */
+@Serializable
+@SerialName("ConfigMissing")
+data class ConfigMissing(
+    val file: String,
+    val expectedFormat: String,
+    val proposedConfig: ArchitectureConfig,
 ) : Failure
 
 /**
