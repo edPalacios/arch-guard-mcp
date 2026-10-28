@@ -4,7 +4,7 @@ Implements [architecture-guard.md](architecture-guard.md) through the interface 
 
 Each task is a vertical slice: core behaviour, its MCP wiring, and its tests, so QA can exercise it end to end through the JAR. Tasks run in order; a task is done when every acceptance criterion holds and its box is ticked in the task's commit.
 
-Reference project for QA: `$REFERENCE_PROJECT` (read-only: never write inside it).
+Reference project for QA: a local, large modularised Android/Gradle project whose path the orchestrator gives QA (read-only: never write inside it).
 
 ---
 

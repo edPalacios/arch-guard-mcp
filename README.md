@@ -1,109 +1,160 @@
 # arch-guard-mcp
 
-Servidor MCP (Kotlin, transporte stdio) que analiza la arquitectura de proyectos Android
-modularizados: lee `settings.gradle.kts` y los `build.gradle.kts` sin ejecutar Gradle, y
-comprueba las dependencias entre módulos contra las capas declaradas en `archguard.json`.
+An [MCP](https://modelcontextprotocol.io) server that guards the layer architecture of modularised
+Android/Gradle projects. It reads `settings.gradle.kts` and each module's `build.gradle.kts` as
+text, builds the module dependency graph, and checks it against the layers and rules you declare
+in `archguard.json`.
 
-Tres tools, todas de solo lectura y deterministas: [`list_modules`](#tool-list_modules),
-[`get_module_graph`](#tool-get_module_graph) y [`check_architecture`](#tool-check_architecture).
+It is read-only and deterministic: same project, same answer, no Gradle execution, no network.
+It speaks MCP over stdio, so any MCP client can use it (Claude Code, Cursor, Codex, MCP Inspector, ...).
 
-| Pieza | Versión |
+## What it checks
+
+| Finding | Meaning |
 |---|---|
-| `io.modelcontextprotocol:kotlin-sdk-server` | 0.16.0 |
-| Kotlin | 2.4.21 (la que usa el SDK) |
-| Gradle (wrapper) | 9.8.1 |
-| Shadow (`com.gradleup.shadow`) | 9.6.1 |
-| JVM target | 17 |
+| `violations` | A module depends on a layer its own layer's rule does not allow. |
+| `danglingDependencies` | A dependency on a module `settings.gradle.kts` does not include. Gradle fails on these, so they are never counted as violations. |
+| `unresolved` | Module inclusions or dependencies only Gradle could resolve (variables, string templates, loops). Reported, not silently dropped. |
+| `unanalysedHelpers` | Calls to the project's own dependency helpers (e.g. `commonLibs(project, ...)`), counted by name. The modules they add are a blind spot: read the helper. |
+| `unassigned` | Modules that match no layer and are not excluded. |
 
-## Build y tests
+Limitations:
+
+- Kotlin DSL only (`*.gradle.kts`); Groovy scripts are not read.
+- Direct dependencies only: `implementation`, `api` and `compileOnly` with `project(":x")` or
+  `projects.x.y`. No transitive analysis.
+- Test configurations are ignored.
+- Static text analysis: nothing is executed, so anything computed at configuration time is
+  reported as unresolved rather than guessed.
+
+## Requirements and build
+
+JDK 17 or newer.
 
 ```bash
-./gradlew test shadowJar
+./gradlew shadowJar
 ```
 
-Genera `build/libs/arch-guard-mcp-all.jar` (fat JAR ejecutable).
+The executable fat JAR is `build/libs/arch-guard-mcp-all.jar`.
 
-## Tool `list_modules`
+## Register it
 
-Entrada: `{ "projectPath": "/ruta/absoluta/al/proyecto" }` (directorio raíz del proyecto).
+Always use absolute paths: clients launch the process from another directory.
 
-Salida (el mismo JSON como texto y como `structuredContent`). El campo `type` nombra la
-variante de la respuesta, para que el agente ramifique sobre él:
+**Claude Code**
+
+```bash
+claude mcp add arch-guard --scope user -- java -jar /abs/path/arch-guard-mcp/build/libs/arch-guard-mcp-all.jar
+```
+
+`--scope user` makes it available in all your projects, `--scope local` (default) only in the
+current project for you, `--scope project` writes it to the repo's `.mcp.json` to share with the
+team. Check with `claude mcp list` or `/mcp`.
+
+**Other MCP clients** (Cursor, Codex, ...) take a command and arguments in their config file:
+
+```json
+{
+  "mcpServers": {
+    "arch-guard": {
+      "command": "java",
+      "args": ["-jar", "/abs/path/arch-guard-mcp/build/libs/arch-guard-mcp-all.jar"]
+    }
+  }
+}
+```
+
+If `java` on the `PATH` is older than 17, use the full path to a JDK 17+ `java`.
+
+**MCP Inspector** (needs Node.js):
+
+```bash
+npx @modelcontextprotocol/inspector java -jar build/libs/arch-guard-mcp-all.jar
+```
+
+Connect, open **Tools**, pick a tool and fill `projectPath`.
+
+## Typical flow with an agent
+
+1. The agent calls `check_architecture` on a project that has no `archguard.json`.
+2. The server answers with a `ConfigMissing` error carrying the expected format, a
+   `proposedConfig` derived from the build, `reviewMarks` for observed dependencies the proposal
+   forbids, and `ruleSources` (docs, agent instructions, architecture tests, detekt config) that
+   may already state the project's rules.
+3. The agent reads those sources, reviews the proposal, and writes `archguard.json` itself. The
+   server never writes files.
+4. The agent calls `check_architecture` again and fixes or reports the violations.
+
+Example prompts:
+
+- "Check the architecture of the project at /path/to/app."
+- "Which layers does `:feature:checkout` depend on, and is that allowed?"
+- "Set up archguard.json for this project, based on our architecture docs."
+- "If `core` could depend on `feature`, how many dependencies would that touch?"
+
+## Tools
+
+All three take `projectPath` (absolute path of the project root). Every successful answer and
+every error is JSON with a `type` field naming the variant, so the agent can branch on it.
+
+### `list_modules`
+
+Modules declared with `include(...)` in `settings.gradle.kts`, deduplicated and sorted.
 
 ```json
 {
   "type": "ModuleList",
-  "rootProjectName": "MyApp",
-  "modules": [":app", ":core:data", ":core:domain", ":feature:login"],
+  "rootProjectName": "layered",
+  "modules": [":app", ":core:network", ":core:ui", ":feature:orders:history"],
   "unresolved": []
 }
 ```
 
-`modules` va deduplicado y ordenado. `unresolved` lista las inclusiones que no se pueden
-resolver sin ejecutar Gradle (plantillas `"$x"`, variables, bucles), cada una con su
-declaración, fichero y línea; se reportan en vez de descartarse en silencio.
+Errors: `ProjectNotFound` (`path`, `reason`).
 
-Si no hay directorio o no hay `settings.gradle.kts`, la respuesta es un resultado de error
-con `{"type": "ProjectNotFound", "path": ..., "reason": ...}`.
+### `get_module_graph`
 
-## Tool `get_module_graph`
+Optional `module`: a module path or pattern (`*` matches one segment, `**` any number).
 
-Entrada: `projectPath` y, opcionalmente, `module` (ruta de módulo o patrón: `*` casa un
-segmento, `**` varios).
-
-**Con `module`** no hace falta config: devuelve `{"type": "ModuleDependencies", ...}` con una
-entrada por módulo que casa, y en cada una sus dependencias de módulo (destino, configuración,
-fichero y línea), más sus `unresolved`.
+With `module`, no config needed: `ModuleDependencies`, one entry per matching module with its
+dependencies (target, configuration, file, line). A target the build does not include is marked
+`"dangling": true`.
 
 ```json
 {
   "type": "ModuleDependencies",
-  "filter": ":feature:**",
+  "filter": ":feature:orders:history",
   "modules": [
     {
-      "path": ":feature:login",
-      "buildFile": "feature/login/build.gradle.kts",
+      "path": ":feature:orders:history",
+      "buildFile": "feature/orders/history/build.gradle.kts",
       "dependencies": [
         {
-          "target": ":core:data",
+          "target": ":feature:orders:tracking",
           "configuration": "implementation",
-          "file": "feature/login/build.gradle.kts",
-          "line": 24
-        },
-        {
-          "target": ":core:gone",
-          "configuration": "implementation",
-          "file": "feature/login/build.gradle.kts",
-          "line": 25,
-          "dangling": true
+          "file": "feature/orders/history/build.gradle.kts",
+          "line": 16
         }
       ],
       "unresolved": []
     }
   ],
-  "unanalysedHelpers": { "commonLibs": 42 },
+  "unanalysedHelpers": { "commonLibs": 1 },
   "warnings": []
 }
 ```
 
-Solo cuentan `implementation`, `api` y `compileOnly` con `project(":x")` o `projects.x.y`; las
-configuraciones de test y las dependencias transitivas quedan fuera. Una dependencia cuyo
-destino no es un módulo incluido en `settings.gradle.kts` sale marcada con `"dangling": true`
-(ver [dependencias colgantes](#dependencias-colgantes)). `unanalysedHelpers` cuenta
-por nombre las llamadas a los helpers de dependencias del propio proyecto
-(`commonLibs(project, ...)`): los módulos que añaden son un punto ciego, hay que leer el helper.
+(Trimmed to one dependency; the real answer lists all of them.)
 
-**Sin `module`** devuelve el resumen por capas del build entero, que sí necesita
-`archguard.json`: `{"type": "LayerSummary", ...}` con la config usada, los módulos de cada capa,
-la matriz capa → capa (`count` y `allowed` por par declarado), cuántas dependencias colgantes
-hay (`danglingDependencyCount`, fuera de la matriz), los módulos sin capa (`unassigned`),
-`unanalysedHelpers` y `warnings`. Con eso el agente responde por sí mismo preguntas hipotéticas
-sobre las capas.
+Without `module`: `LayerSummary` for the whole build, which needs `archguard.json`. It contains
+the config used, the modules of each layer, the layer-to-layer matrix (`count` and `allowed` per
+pair), `danglingDependencyCount`, `unassigned`, `unanalysedHelpers` and `warnings`. An agent can
+answer hypothetical questions about the layers from this alone.
 
-## Tool `check_architecture`
+### `check_architecture`
 
-Entrada: `{ "projectPath": "..." }`. Comprueba cada dependencia de módulo contra las reglas de
-`archguard.json`:
+Checks every module dependency against `archguard.json`. Output from the test fixture
+`src/test/resources/fixtures/layered/`:
 
 ```json
 {
@@ -112,58 +163,69 @@ Entrada: `{ "projectPath": "..." }`. Comprueba cada dependencia de módulo contr
     {
       "source": ":core:ui",
       "sourceLayer": "core",
-      "target": ":feature:login",
+      "target": ":feature:account:profile",
       "targetLayer": "feature",
       "file": "core/ui/build.gradle.kts",
-      "line": 18,
+      "line": 13,
       "rule": { "layer": "core", "mayDependOn": ["core"] }
     }
   ],
   "danglingDependencies": [
     {
-      "source": ":feature:login",
-      "target": ":core:gone",
+      "source": ":core:ui",
+      "target": ":feature:account:favorites",
       "configuration": "implementation",
-      "file": "feature/login/build.gradle.kts",
-      "line": 25
+      "file": "core/ui/build.gradle.kts",
+      "line": 16
     }
   ],
   "unassigned": [],
-  "unresolved": [],
-  "unanalysedHelpers": {},
+  "unresolved": [
+    { "declaration": "serializationModule", "file": "core/network/build.gradle.kts", "line": 10 }
+  ],
+  "unanalysedHelpers": { "commonLibs": 1 },
   "warnings": [],
-  "counts": {
-    "modules": 214,
-    "dependencies": 1906,
-    "violations": 1,
-    "danglingDependencies": 1
-  }
+  "counts": { "modules": 11, "dependencies": 29, "violations": 2, "danglingDependencies": 1 }
 }
 ```
 
-Cada violación trae los dos módulos, las dos capas, el fichero y la línea de la declaración y la
-regla de la capa de origen, para no tener que releer la config. `unassigned` son módulos que no
-casan con ninguna capa y no están excluidos (no son violaciones: dales una capa o exclúyelos).
-`unresolved` son inclusiones o dependencias que solo Gradle podría resolver, así que esos módulos
-no se juzgaron. `violations`, `danglingDependencies`, `unresolved` y `unanalysedHelpers` vacíos
-significa que se comprobó el build entero y cumple.
+(Trimmed: the fixture has a second violation.) Each violation carries both modules and layers,
+the declaring file and line, and the source layer's rule, so the fix is visible without
+rereading the config. Empty `violations`, `danglingDependencies`, `unresolved` and
+`unanalysedHelpers` means the whole build was checked and holds. Dangling dependencies are
+reported for every module, excluded ones included.
 
-### Dependencias colgantes
+Errors: `ProjectNotFound`, `ConfigInvalid`, `ConfigMissing`.
 
-Una dependencia colgante (*dangling*) apunta a un módulo que `settings.gradle.kts` no incluye,
-sea con `project(":x")` o con un accesor `projects.x.y` que no corresponde a ningún módulo
-incluido. Gradle falla con ellas, así que el guard no las descarta: `check_architecture` las
-lista en `danglingDependencies` (ordenadas por fichero y línea, con el destino tal cual lo
-escribe el script) y las cuenta en `counts.danglingDependencies`.
+`ConfigMissing` (also returned by `get_module_graph` without `module`), shortened:
 
-- Nunca son violaciones ni entran en la matriz capa → capa: no llegan a ningún módulo al que las
-  reglas puedan juzgar, aunque su ruta case con el patrón de una capa.
-- Se reportan para todos los módulos de origen, incluidos los `excluded`: rompen el build
-  independientemente de las capas.
+```json
+{
+  "type": "ConfigMissing",
+  "file": "archguard.json",
+  "expectedFormat": "archguard.json, in the root directory of the analysed project: ...",
+  "proposedConfig": { "version": 1, "layers": [ ... ], "rules": [ ... ], "excluded": [":sample:**"] },
+  "reviewMarks": [
+    { "from": "feature", "to": "feature", "count": 1, "reason": "the official Android guidance has no feature -> feature dependency: ..." }
+  ],
+  "ruleSources": [ { "path": "docs/architecture.md", "kind": "documentation" } ]
+}
+```
 
-## Fichero `archguard.json`
+The proposal turns the first path segment of each module into a layer. `app`, `feature` and
+`core` follow the official Android modularisation guidance (`app` -> `feature`, `core`;
+`feature` -> `core`; `core` -> `core`); any other segment is a project-specific layer whose
+observed edges are allowed. Observed edges that contradict the guidance become `reviewMarks`,
+not rules. Sample, benchmark and `architecture` segments go to `excluded`. Writing
+`proposedConfig` verbatim is already a valid config.
 
-En la raíz del proyecto analizado. El guard nunca lo escribe: lo escribes tú (o el agente).
+`ruleSources` kinds: `agent_instructions` (`CLAUDE.md`, `AGENTS.md`), `documentation` (Markdown at
+the root or under `docs/`), `architecture_module`, `architecture_test` (Konsist/ArchUnit),
+`detekt_config`. The server only points at them; reading them is the agent's job.
+
+## `archguard.json`
+
+Lives in the root of the analysed project. You or your agent write it; the guard never does.
 
 ```json
 {
@@ -182,80 +244,52 @@ En la raíz del proyecto analizado. El guard nunca lo escribe: lo escribes tú (
 }
 ```
 
-- `version` debe ser 1. `layers` y `rules` son obligatorios; `excluded` puede omitirse.
-- `layers` está ordenado: el primer patrón que casa con la ruta de un módulo nombra su capa, así
-  que los patrones más estrechos van primero. `*` casa un segmento de ruta, `**` cualquier
-  número de ellos.
-- Una regla es una lista de permitidos: los módulos de una capa solo pueden depender de las
-  capas que lista, la suya propia solo si está listada. Una capa sin regla no puede depender de
-  nada, y ninguna capa puede tener dos reglas.
-- `excluded` deja módulos fuera de todas las capas, así que no se asignan ni se reportan como
-  `unassigned`.
+- `version` must be `1`. `layers` and `rules` are required; `excluded` is optional.
+- `layers` is ordered and the first matching pattern names a module's layer, so put narrower
+  patterns first. `*` matches one path segment, `**` any number of segments.
+- A rule is an allowlist: a layer may depend only on the layers it lists, itself included only
+  if listed. A layer with no rule may depend on nothing; a layer cannot have two rules.
+- `excluded` patterns keep modules out of every layer (not assigned, not reported as `unassigned`).
 
-JSON mal formado, un campo obligatorio ausente o `version` distinto de 1 dan un resultado de
-error `{"type": "ConfigInvalid", "file": ..., "problems": [...], "expectedFormat": ...}`. Una
-capa que no casa con ningún módulo, o una regla que nombra una capa inexistente, solo producen
-un aviso en `warnings`.
+Errors vs warnings: malformed JSON, a missing required field or `version` other than 1 is a
+`ConfigInvalid` error (`file`, `problems`, `expectedFormat`). A layer that matches no module or a
+rule naming an unknown layer is only a message in `warnings`.
 
-### Cuando no hay `archguard.json`
-
-`check_architecture` y `get_module_graph` sin `module` responden con un resultado de error
-`{"type": "ConfigMissing", ...}` que trae el formato esperado (`expectedFormat`), una config
-propuesta a partir del propio build (`proposedConfig`), las aristas que la propuesta deja
-prohibidas (`reviewMarks`) y dónde el proyecto quizá ya tiene sus reglas escritas
-(`ruleSources`). Escribir `proposedConfig` tal cual en `archguard.json` ya es una config válida.
-
-La propuesta convierte el primer segmento de cada ruta de módulo en una capa: `app`, `feature` y
-`core` son capas convencionales y siguen la guía oficial de modularización de Android
-(`app → feature, core`; `feature → core`; `core → core`); cualquier otro segmento es una capa
-propia del proyecto y sus aristas se permiten si el build las declara. Las aristas observadas
-que contradicen la guía (`feature → feature`, `core → feature`, cualquiera `→ app`) no se
-convierten en reglas: salen en `reviewMarks` con su recuento, para que decidas tú. Los segmentos
-de samples y benchmarks, y los que contienen `architecture`, no son capas: van a `excluded`.
-
-`ruleSources` lista ficheros y módulos que pueden declarar reglas de arquitectura, cada uno con
-su `kind`; el guard solo los señala, leerlos es trabajo del agente:
-
-| `kind` | Qué es |
-|---|---|
-| `agent_instructions` | `CLAUDE.md`, `AGENTS.md` |
-| `documentation` | Markdown en la raíz o bajo `docs/` |
-| `architecture_module` | módulo cuya ruta contiene `architecture` |
-| `architecture_test` | fichero de Konsist o ArchUnit |
-| `detekt_config` | `detekt*.yml` / `detekt*.yaml` |
-
-La búsqueda recorre el proyecto una vez y se salta directorios ocultos, `build` y `node_modules`.
-
-## Probar con MCP Inspector
-
-Requiere Node.js. Desde la raíz del repo:
+## Development
 
 ```bash
-npx @modelcontextprotocol/inspector java -jar build/libs/arch-guard-mcp-all.jar
+./gradlew test            # unit and golden tests
+./gradlew shadowJar       # build the fat JAR
+./gradlew shadowJar -q && scripts/mcp_call.py --list          # tool schemas
+scripts/mcp_call.py check_architecture '{"projectPath": "/abs/path"}'   # call the real server
 ```
 
-Se abre la UI en el navegador → **Connect** → pestaña **Tools** → **List Tools** →
-`list_modules` → rellena `projectPath` con la ruta absoluta de un proyecto Android → **Run Tool**.
+`scripts/mcp_call.py` starts the JAR, performs the MCP handshake, calls one tool and prints the
+result (exit code 1 when the result is an error).
 
-## Registrar en Claude Code
+Layout:
 
-Usa rutas absolutas (Claude Code lanza el proceso desde otro directorio):
+- `src/main/kotlin/com/archguard/core` - the analysis: settings and build-script parsing, module
+  graph, layers, config, proposal, rule sources. No MCP types.
+- `src/main/kotlin/com/archguard/mcp` - the thin stdio MCP layer: tool registration and
+  JSON responses.
+- `src/test/resources/fixtures/layered/` - fixture project with deliberate violations.
+- `docs/specs/` - the spec (`architecture-guard.md`) and the task plan (`plan.md`);
+  `docs/adr/` - architecture decision records; `GLOSSARY.md` - domain vocabulary;
+  `CODING_STANDARDS.md` - rules every change follows.
 
-```bash
-claude mcp add arch-guard --scope user -- java -jar /ruta/absoluta/arch-guard-mcp/build/libs/arch-guard-mcp-all.jar
-```
+Note for stdio: stdout is exclusively the JSON-RPC channel. `Main.kt` keeps the real stdout for
+the transport and redirects `System.out` to stderr; logs go to stderr.
 
-- `--scope user`: disponible en todos tus proyectos. Usa `--scope project` para guardarlo en
-  `.mcp.json` del repo y compartirlo con el equipo.
-- Si `java` del `PATH` no es ≥ 17, pon la ruta completa, p. ej.
-  `/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home/bin/java`.
+### Built with a spec-driven agent workflow
 
-Comprobar: `claude mcp list` (debe salir `✓ Connected`) o `/mcp` dentro de una sesión. Luego
-pide algo como *"lista los módulos del proyecto en /ruta/a/mi-app"*.
+The project was built task by task from `docs/specs/plan.md` using Claude Code agents defined in
+`.claude/agents/`:
 
-## Nota sobre stdout
+- `developer` implements one task (or fixes review/QA findings) against the spec and coding standards.
+- `reviewer` reviews the diff on two axes: Standards and Spec.
+- `qa` builds the JAR and checks every acceptance criterion through the real MCP server.
 
-En stdio, stdout es exclusivamente el canal JSON-RPC. `Main.kt` guarda el stdout real para el
-transporte y redirige `System.out` a stderr, porque `kotlin-logging` (dependencia del SDK) hace
-un `println` al arrancar que, si no, corrompería el protocolo. Los logs van por stderr vía
-`slf4j-simple`.
+The `implement-phase` skill (`.claude/skills/implement-phase`) is the team lead: it picks the
+next task, runs developer, reviewer and QA in a loop (at most two fix rounds), then commits.
+You do not need any of this to use or contribute to the server.

@@ -17,9 +17,9 @@ The orchestrator gives you a task id. Its acceptance criteria are in `docs/specs
 2. For each acceptance criterion, find the observable check and run it:
    - Tool behaviour: `scripts/mcp_call.py <tool> '<json args>'` (prints the result, exits 1 when `isError`). `scripts/mcp_call.py --list` shows tool schemas and descriptions.
    - The fixture project: `src/test/resources/fixtures/layered/`.
-   - The reference project: `$REFERENCE_PROJECT`. It is **read-only**. When a criterion needs a config or other file inside it, copy only its Gradle files to a temp dir first:
+   - The reference project: a local reference Android project whose path the orchestrator gives you (referred to below as `$REFERENCE_PROJECT`). It is **read-only**. When a criterion needs a config or other file inside it, copy only its Gradle files to a temp dir first:
      ```bash
-     tmp=$(cd "$(mktemp -d)" && pwd -P) && (cd $REFERENCE_PROJECT && find . -name '*.gradle.kts' -not -path '*/build/*' -not -path './build-logic/*' | cpio -pdm "$tmp" 2>/dev/null)
+     tmp=$(cd "$(mktemp -d)" && pwd -P) && (cd "$REFERENCE_PROJECT" && find . -name '*.gradle.kts' -not -path '*/build/*' -not -path './build-logic/*' | cpio -pdm "$tmp" 2>/dev/null)
      ```
      `pwd -P` resolves macOS's `/var` symlink; without it `cpio` refuses to extract and the copy comes out empty (`ProjectNotFound`). Check the copy holds `settings.gradle.kts` before using it.
    - Timing: `time scripts/mcp_call.py ...`.

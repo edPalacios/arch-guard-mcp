@@ -33,4 +33,4 @@ Any MCP client over stdio (Claude Code, Cursor, Codex, Gemini CLI...). The analy
 
 ## Reference project
 
-`$REFERENCE_PROJECT`: layers `app`, `feature`, `component`, `shared-component`, `core`. Rules: `app` → all four; `feature` → `component`, `shared-component`, `core`; `component` → `shared-component`, `core`; `shared-component` → `core`; `core` → `core`. Excluded: `:sample:**`, `:benchmark`, `:architecture-tests`. Plus an in-repo fixture with deliberate violations for tests.
+A large modularised Android/Gradle project (~200 modules, ~1,800 module dependencies) with layers `app`, `feature`, `component`, `shared-component`, `core`. Rules: `app` → all four; `feature` → `component`, `shared-component`, `core`; `component` → `shared-component`, `core`; `shared-component` → `core`; `core` → `core`. Excluded: `:sample:**`, `:benchmark`, `:architecture-tests`. Plus an in-repo fixture with deliberate violations for tests.
