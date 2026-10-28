@@ -27,15 +27,87 @@ Limitations:
 - Static text analysis: nothing is executed, so anything computed at configuration time is
   reported as unresolved rather than guessed.
 
-## Requirements and build
+## Example
 
-JDK 17 or newer.
+The test fixture [`src/test/resources/fixtures/layered/`](src/test/resources/fixtures/layered/)
+is a small layered project (`app` → `feature` → `component` → `shared-component` → `core`, see its
+[`archguard.json`](src/test/resources/fixtures/layered/archguard.json)) with a few mistakes planted:
+
+```kotlin
+// core/ui/build.gradle.kts
+implementation(project(":feature:account:profile"))     // line 13: core must not depend on feature
+implementation(project(":feature:account:favorites"))   // line 16: not included in settings.gradle.kts
+
+// feature/orders/history/build.gradle.kts
+implementation(project(":feature:orders:tracking"))     // line 16: feature must not depend on feature
+commonLibs(project, "implementation")                   // line 18: project-specific helper
+
+// core/network/build.gradle.kts
+implementation(project(serializationModule))            // line 10: a variable, only Gradle knows it
+```
+
+`check_architecture` with `{"projectPath": "/abs/path/to/fixtures/layered"}` answers:
+
+```json
+{
+  "type": "ArchitectureReport",
+  "violations": [
+    {
+      "source": ":core:ui",
+      "sourceLayer": "core",
+      "target": ":feature:account:profile",
+      "targetLayer": "feature",
+      "file": "core/ui/build.gradle.kts",
+      "line": 13,
+      "rule": { "layer": "core", "mayDependOn": ["core"] }
+    },
+    {
+      "source": ":feature:orders:history",
+      "sourceLayer": "feature",
+      "target": ":feature:orders:tracking",
+      "targetLayer": "feature",
+      "file": "feature/orders/history/build.gradle.kts",
+      "line": 16,
+      "rule": { "layer": "feature", "mayDependOn": ["component", "shared-component", "core"] }
+    }
+  ],
+  "danglingDependencies": [
+    {
+      "source": ":core:ui",
+      "target": ":feature:account:favorites",
+      "configuration": "implementation",
+      "file": "core/ui/build.gradle.kts",
+      "line": 16
+    }
+  ],
+  "unassigned": [],
+  "unresolved": [
+    { "declaration": "serializationModule", "file": "core/network/build.gradle.kts", "line": 10 }
+  ],
+  "unanalysedHelpers": { "commonLibs": 1 },
+  "warnings": [],
+  "counts": { "modules": 11, "dependencies": 29, "violations": 2, "danglingDependencies": 1 }
+}
+```
+
+Every finding points at a file and line, so an agent can fix it or explain it without rereading
+the build. To reproduce it from a clone: `scripts/mcp_call.py check_architecture '{"projectPath": "'$PWD'/src/test/resources/fixtures/layered"}'`.
+
+## Install
+
+Needs JDK 17 or newer.
+
+Download the fat JAR from the [latest release](https://github.com/edPalacios/arch-guard-mcp/releases/latest):
+
+```bash
+curl -LO https://github.com/edPalacios/arch-guard-mcp/releases/latest/download/arch-guard-mcp-all.jar
+```
+
+Or build it yourself; the result is `build/libs/arch-guard-mcp-all.jar`:
 
 ```bash
 ./gradlew shadowJar
 ```
-
-The executable fat JAR is `build/libs/arch-guard-mcp-all.jar`.
 
 ## Register it
 
@@ -44,7 +116,7 @@ Always use absolute paths: clients launch the process from another directory.
 **Claude Code**
 
 ```bash
-claude mcp add arch-guard --scope user -- java -jar /abs/path/arch-guard-mcp/build/libs/arch-guard-mcp-all.jar
+claude mcp add arch-guard --scope user -- java -jar /abs/path/to/arch-guard-mcp-all.jar
 ```
 
 `--scope user` makes it available in all your projects, `--scope local` (default) only in the
@@ -58,7 +130,7 @@ team. Check with `claude mcp list` or `/mcp`.
   "mcpServers": {
     "arch-guard": {
       "command": "java",
-      "args": ["-jar", "/abs/path/arch-guard-mcp/build/libs/arch-guard-mcp-all.jar"]
+      "args": ["-jar", "/abs/path/to/arch-guard-mcp-all.jar"]
     }
   }
 }
@@ -69,7 +141,7 @@ If `java` on the `PATH` is older than 17, use the full path to a JDK 17+ `java`.
 **MCP Inspector** (needs Node.js):
 
 ```bash
-npx @modelcontextprotocol/inspector java -jar build/libs/arch-guard-mcp-all.jar
+npx @modelcontextprotocol/inspector java -jar /abs/path/to/arch-guard-mcp-all.jar
 ```
 
 Connect, open **Tools**, pick a tool and fill `projectPath`.
@@ -153,45 +225,9 @@ answer hypothetical questions about the layers from this alone.
 
 ### `check_architecture`
 
-Checks every module dependency against `archguard.json`. Output from the test fixture
-`src/test/resources/fixtures/layered/`:
-
-```json
-{
-  "type": "ArchitectureReport",
-  "violations": [
-    {
-      "source": ":core:ui",
-      "sourceLayer": "core",
-      "target": ":feature:account:profile",
-      "targetLayer": "feature",
-      "file": "core/ui/build.gradle.kts",
-      "line": 13,
-      "rule": { "layer": "core", "mayDependOn": ["core"] }
-    }
-  ],
-  "danglingDependencies": [
-    {
-      "source": ":core:ui",
-      "target": ":feature:account:favorites",
-      "configuration": "implementation",
-      "file": "core/ui/build.gradle.kts",
-      "line": 16
-    }
-  ],
-  "unassigned": [],
-  "unresolved": [
-    { "declaration": "serializationModule", "file": "core/network/build.gradle.kts", "line": 10 }
-  ],
-  "unanalysedHelpers": { "commonLibs": 1 },
-  "warnings": [],
-  "counts": { "modules": 11, "dependencies": 29, "violations": 2, "danglingDependencies": 1 }
-}
-```
-
-(Trimmed: the fixture has a second violation.) Each violation carries both modules and layers,
-the declaring file and line, and the source layer's rule, so the fix is visible without
-rereading the config. Empty `violations`, `danglingDependencies`, `unresolved` and
+Checks every module dependency against `archguard.json`. See [Example](#example) for a full answer.
+Each violation carries both modules and layers, the declaring file and line, and the source
+layer's rule, so the fix is visible without rereading the config. Empty `violations`, `danglingDependencies`, `unresolved` and
 `unanalysedHelpers` means the whole build was checked and holds. Dangling dependencies are
 reported for every module, excluded ones included.
 
