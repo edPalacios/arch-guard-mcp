@@ -19,8 +19,9 @@ The orchestrator gives you a task id. Its acceptance criteria are in `docs/specs
    - The fixture project: `src/test/resources/fixtures/layered/`.
    - The reference project: `$REFERENCE_PROJECT`. It is **read-only**. When a criterion needs a config or other file inside it, copy only its Gradle files to a temp dir first:
      ```bash
-     tmp=$(mktemp -d) && (cd $REFERENCE_PROJECT && find . -name '*.gradle.kts' -not -path '*/build/*' -not -path './build-logic/*' | cpio -pdm "$tmp" 2>/dev/null)
+     tmp=$(cd "$(mktemp -d)" && pwd -P) && (cd $REFERENCE_PROJECT && find . -name '*.gradle.kts' -not -path '*/build/*' -not -path './build-logic/*' | cpio -pdm "$tmp" 2>/dev/null)
      ```
+     `pwd -P` resolves macOS's `/var` symlink; without it `cpio` refuses to extract and the copy comes out empty (`ProjectNotFound`). Check the copy holds `settings.gradle.kts` before using it.
    - Timing: `time scripts/mcp_call.py ...`.
    - Criteria about code structure (packages, deleted files, golden tests): check with `grep`, `ls`, and the test report under `build/test-results/`.
 3. **Regression**: rerun the observable checks of every task already ticked `## [x]` in the plan (tool calls against the fixture and the reference project; skip structural criteria the test suite already covers). Anything that passed before and fails now is a FAIL of this task.
