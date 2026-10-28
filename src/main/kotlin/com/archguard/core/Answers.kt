@@ -249,7 +249,11 @@ data class ConfigInvalid(
  * @property file where the config is expected, relative to the project root.
  * @property expectedFormat the format the agent writes it in.
  * @property proposedConfig a config inferred from the build, for the agent to review and write.
- *   Never applied by the guard itself.
+ *   Never applied by the guard itself. Its JSON is an `archguard.json` as it stands.
+ * @property reviewMarks the module dependencies the build declares that [proposedConfig]
+ *   deliberately leaves forbidden, for the agent to decide on.
+ * @property ruleSources where the project may already state its architecture rules, for the
+ *   agent to read before it writes the config.
  */
 @Serializable
 @SerialName("ConfigMissing")
@@ -257,7 +261,65 @@ data class ConfigMissing(
     val file: String,
     val expectedFormat: String,
     val proposedConfig: ArchitectureConfig,
+    val reviewMarks: List<ReviewMark>,
+    val ruleSources: List<RuleSource>,
 ) : Failure
+
+/**
+ * A layer → layer dependency the build declares and the proposed config does not allow, because
+ * the official Android modularization guidance does not: the agent either allows it in the
+ * config it writes or changes the dependency.
+ *
+ * @property from the layer the depending modules belong to.
+ * @property to the layer the modules depended on belong to.
+ * @property count how many distinct module dependencies go from [from] to [to].
+ * @property reason why the proposal left this edge out of its rules.
+ */
+@Serializable
+data class ReviewMark(
+    val from: String,
+    val to: String,
+    val count: Int,
+    val reason: String,
+)
+
+/**
+ * A file or module of the analysed project that may state architecture rules, in prose or in
+ * code. The guard only points at it; the agent reads and interprets it (ADR 0002).
+ *
+ * @property path a file path relative to the project root with `/`, or a module path for
+ *   [RuleSourceKind.ARCHITECTURE_MODULE].
+ * @property kind what kind of source it is, so the agent knows what to expect inside.
+ */
+@Serializable
+data class RuleSource(
+    val path: String,
+    val kind: RuleSourceKind,
+)
+
+/** What kind of rule source a [RuleSource] is. */
+@Serializable
+enum class RuleSourceKind {
+    /** `CLAUDE.md` or `AGENTS.md`: instructions a coding agent is already meant to follow. */
+    @SerialName("agent_instructions")
+    AGENT_INSTRUCTIONS,
+
+    /** A Markdown document in the project root or under `docs/`, such as guidelines. */
+    @SerialName("documentation")
+    DOCUMENTATION,
+
+    /** A module whose path names architecture: its tests may state the rules in code. */
+    @SerialName("architecture_module")
+    ARCHITECTURE_MODULE,
+
+    /** A Konsist or ArchUnit file: those libraries state architecture rules as test code. */
+    @SerialName("architecture_test")
+    ARCHITECTURE_TEST,
+
+    /** A detekt configuration file: static analysis rules, some of them about dependencies. */
+    @SerialName("detekt_config")
+    DETEKT_CONFIG,
+}
 
 /**
  * A module inclusion or dependency the guard found but could not resolve without running

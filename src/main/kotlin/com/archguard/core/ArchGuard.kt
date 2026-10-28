@@ -26,8 +26,8 @@ object ArchGuard {
      * — the [ModuleDependencies] the selected modules declare, which needs no config.
      *
      * Without it, the [LayerSummary] of the whole build, which needs `archguard.json`: it
-     * answers [ConfigMissing] when the project has none and [ConfigInvalid] when it cannot be
-     * used.
+     * answers [ConfigMissing] — with a config proposed from the build and the project's rule
+     * sources — when the project has none, and [ConfigInvalid] when it cannot be used.
      *
      * Answers [ProjectNotFound] when [projectDir] is not a directory or holds no settings file.
      */
@@ -36,10 +36,10 @@ object ArchGuard {
         notFound(dir)?.let { return it }
         val filter = module?.takeIf { it.isNotBlank() }
         if (filter != null) return readBuild(dir, filter).graph
-        return when (val read = readConfig(dir)) {
+        val build = readBuild(dir, ALL_MODULES)
+        return when (val read = readConfig(dir, build.graph)) {
             is ConfigRead.Unusable -> read.failure
-            is ConfigRead.Loaded ->
-                layerSummary(readBuild(dir, ALL_MODULES).graph, read.config)
+            is ConfigRead.Loaded -> layerSummary(build.graph, read.config)
         }
     }
 
@@ -48,15 +48,16 @@ object ArchGuard {
      * does not allow, and what the guard could not judge.
      *
      * Answers [ProjectNotFound] when [projectDir] is not a directory or holds no settings file,
-     * [ConfigMissing] when the project has no config and [ConfigInvalid] when it cannot be used.
+     * [ConfigMissing] — with a config proposed from the build and the project's rule sources —
+     * when the project has no config, and [ConfigInvalid] when it cannot be used.
      */
     fun checkArchitecture(projectDir: Path): CheckAnswer {
         val dir = projectDir.toAbsolutePath().normalize()
         notFound(dir)?.let { return it }
-        return when (val read = readConfig(dir)) {
+        val build = readBuild(dir, ALL_MODULES)
+        return when (val read = readConfig(dir, build.graph)) {
             is ConfigRead.Unusable -> read.failure
-            is ConfigRead.Loaded ->
-                architectureReport(readBuild(dir, ALL_MODULES), read.config)
+            is ConfigRead.Loaded -> architectureReport(build, read.config)
         }
     }
 }

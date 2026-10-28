@@ -79,6 +79,13 @@ internal fun layerSummary(graph: ModuleDependencies, config: ArchitectureConfig)
     )
 }
 
+/**
+ * The layer → layer edges [graph] declares under [config], for a caller that needs the matrix
+ * without the rest of the summary. [LayerEdge.allowed] still reads [config]'s rules.
+ */
+internal fun layerEdges(graph: ModuleDependencies, config: ArchitectureConfig): List<LayerEdge> =
+    matrixOf(graph, config, layerAssignment(config, graph), layerNames(config))
+
 /** Judges the whole [build] against [config]. */
 internal fun architectureReport(
     build: BuildGraph,

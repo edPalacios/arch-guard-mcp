@@ -11,8 +11,8 @@ import kotlinx.serialization.json.Json
 
 internal const val CONFIG_FILE = "archguard.json"
 
-/** The only format version the guard reads. */
-private const val SUPPORTED_VERSION = 1
+/** The only format version the guard reads, and so the one it proposes. */
+internal const val SUPPORTED_VERSION = 1
 
 /** Strict on purpose: an unknown key is a typo the agent should see, not something to ignore. */
 private val configJson: Json = Json
@@ -72,17 +72,14 @@ internal sealed interface ConfigRead {
     data class Unusable(val failure: Failure) : ConfigRead
 }
 
-/** Reads and validates [projectDir]'s `archguard.json`. */
-internal fun readConfig(projectDir: Path): ConfigRead {
+/**
+ * Reads and validates [projectDir]'s `archguard.json`. Without one, the project's [graph] is
+ * what the proposal of the [ConfigMissing] answer is inferred from.
+ */
+internal fun readConfig(projectDir: Path, graph: ModuleDependencies): ConfigRead {
     val file = projectDir.resolve(CONFIG_FILE)
     if (!Files.isRegularFile(file)) {
-        return ConfigRead.Unusable(
-            ConfigMissing(
-                file = CONFIG_FILE,
-                expectedFormat = EXPECTED_FORMAT,
-                proposedConfig = ArchitectureConfig(SUPPORTED_VERSION, emptyList(), emptyList()),
-            ),
-        )
+        return ConfigRead.Unusable(configMissing(projectDir, graph))
     }
 
     val config = try {
@@ -93,6 +90,22 @@ internal fun readConfig(projectDir: Path): ConfigRead {
 
     val problems = problemsOf(config)
     return if (problems.isEmpty()) ConfigRead.Loaded(config) else invalid(problems)
+}
+
+/**
+ * What a project without an `archguard.json` is answered: the format to write it in, the config
+ * its own [graph] suggests, what of that config the agent has to decide, and where the project
+ * may already state its rules. Writing the proposal verbatim gives a usable config.
+ */
+private fun configMissing(projectDir: Path, graph: ModuleDependencies): ConfigMissing {
+    val proposal = propose(graph)
+    return ConfigMissing(
+        file = CONFIG_FILE,
+        expectedFormat = EXPECTED_FORMAT,
+        proposedConfig = proposal.config,
+        reviewMarks = proposal.reviewMarks,
+        ruleSources = ruleSources(projectDir, graph.modules.map { it.path }),
+    )
 }
 
 /**

@@ -128,9 +128,12 @@ private fun registerCheckArchitecture(server: Server) {
             "module; 'counts' sizes up the modules and dependencies checked. An empty " +
             "'violations' list with empty 'unresolved' and 'unanalysedHelpers' means the whole " +
             "build was checked and holds. Without archguard.json the call is an error carrying " +
-            "the expected format and a proposed config to review. Use get_module_graph for the " +
-            "layer summary or for one module's dependencies. Static analysis only: Gradle is " +
-            "not executed.",
+            "the expected format, a config proposed from the build itself, the dependencies " +
+            "that proposal leaves forbidden under 'reviewMarks', and the files and modules that " +
+            "may already state the rules under 'ruleSources' (guidelines, agent instructions, " +
+            "architecture tests, detekt config) — read those before writing the config. Use " +
+            "get_module_graph for the layer summary or for one module's dependencies. Static " +
+            "analysis only: Gradle is not executed.",
         inputSchema = ToolSchema(
             properties = buildJsonObject {
                 putProjectPath()

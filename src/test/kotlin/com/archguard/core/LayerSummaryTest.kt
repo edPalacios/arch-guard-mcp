@@ -251,7 +251,13 @@ class LayerSummaryTest {
             ConfigMissing(
                 file = "archguard.json",
                 expectedFormat = EXPECTED_FORMAT,
-                proposedConfig = ArchitectureConfig(1, emptyList(), emptyList()),
+                proposedConfig = ArchitectureConfig(
+                    version = 1,
+                    layers = listOf(LayerPattern(":app", "app")),
+                    rules = listOf(LayerRule("app", emptyList())),
+                ),
+                reviewMarks = emptyList(),
+                ruleSources = emptyList(),
             ),
             answer,
         )

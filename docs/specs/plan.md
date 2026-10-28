@@ -56,7 +56,7 @@ Load `archguard.json` and answer `moduleGraph` without a filter.
 4. The `check_architecture` tool exists with a description written for agents.
 5. Against a temporary copy of the reference project's Gradle files plus the reference config from the spec, the report has zero violations and lists no unassigned modules.
 
-## [ ] T5: Missing config: expected format, proposal, rule sources
+## [x] T5: Missing config: expected format, proposal, rule sources
 
 **Acceptance criteria**
 1. Without `archguard.json`, `checkArchitecture` and unfiltered `moduleGraph` answer `ConfigMissing` with the expected format, a proposed config and rule sources.

@@ -15,6 +15,9 @@ import com.archguard.core.ModuleDetail
 import com.archguard.core.ModuleList
 import com.archguard.core.ProjectNotFound
 import com.archguard.core.ReportCounts
+import com.archguard.core.ReviewMark
+import com.archguard.core.RuleSource
+import com.archguard.core.RuleSourceKind
 import com.archguard.core.UnresolvedDeclaration
 import com.archguard.core.Violation
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -329,7 +332,23 @@ class RespondTest {
             ConfigMissing(
                 file = "archguard.json",
                 expectedFormat = expectedFormat,
-                proposedConfig = ArchitectureConfig(1, emptyList(), emptyList()),
+                proposedConfig = ArchitectureConfig(
+                    version = 1,
+                    layers = listOf(LayerPattern(":feature:**", "feature")),
+                    rules = listOf(LayerRule("feature", listOf("feature"))),
+                    excluded = listOf(":sample:**"),
+                ),
+                reviewMarks = listOf(
+                    ReviewMark(
+                        from = "feature",
+                        to = "feature",
+                        count = 2,
+                        reason = "the guidance has no feature -> feature dependency",
+                    ),
+                ),
+                ruleSources = listOf(
+                    RuleSource("docs/architecture.md", RuleSourceKind.DOCUMENTATION),
+                ),
             ),
         )
 
@@ -341,10 +360,38 @@ class RespondTest {
                 "expectedFormat": "archguard.json: version, layers, rules, excluded",
                 "proposedConfig": {
                     "version": 1,
-                    "layers": [],
-                    "rules": [],
-                    "excluded": []
-                }
+                    "layers": [
+                        {
+                            "pattern": ":feature:**",
+                            "name": "feature"
+                        }
+                    ],
+                    "rules": [
+                        {
+                            "layer": "feature",
+                            "mayDependOn": [
+                                "feature"
+                            ]
+                        }
+                    ],
+                    "excluded": [
+                        ":sample:**"
+                    ]
+                },
+                "reviewMarks": [
+                    {
+                        "from": "feature",
+                        "to": "feature",
+                        "count": 2,
+                        "reason": "the guidance has no feature -> feature dependency"
+                    }
+                ],
+                "ruleSources": [
+                    {
+                        "path": "docs/architecture.md",
+                        "kind": "documentation"
+                    }
+                ]
             }
             """.trimIndent(),
             text(result),
