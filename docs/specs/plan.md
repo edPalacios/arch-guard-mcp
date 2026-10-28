@@ -47,7 +47,7 @@ Load `archguard.json` and answer `moduleGraph` without a filter.
 5. `moduleGraph(dir)` answers `LayerSummary`: config, modules per layer, layer → layer matrix with counts and an `allowed` flag, unassigned modules, `unanalysedHelpers`, warnings. Without a config it answers `ConfigMissing` (its proposal content arrives in T5; an empty proposal is acceptable here).
 6. Golden-JSON tests pin `LayerSummary` and `ConfigInvalid`.
 
-## [ ] T4: `checkArchitecture`
+## [x] T4: `checkArchitecture`
 
 **Acceptance criteria**
 1. `ArchGuard.checkArchitecture(dir)` answers `ArchitectureReport`: violations (source and target module, both layers, file, line, the source layer's rule), unassigned modules, unresolved declarations, `unanalysedHelpers`, warnings and counts.

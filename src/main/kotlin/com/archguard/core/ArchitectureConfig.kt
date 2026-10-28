@@ -91,10 +91,21 @@ internal fun readConfig(projectDir: Path): ConfigRead {
         return invalid(problemsOf(unreadable))
     }
 
-    return if (config.version == SUPPORTED_VERSION) {
-        ConfigRead.Loaded(config)
-    } else {
-        invalid(listOf("unsupported version ${config.version}: expected $SUPPORTED_VERSION"))
+    val problems = problemsOf(config)
+    return if (problems.isEmpty()) ConfigRead.Loaded(config) else invalid(problems)
+}
+
+/**
+ * What makes a config the guard could read unusable: a version it does not know, or a second
+ * rule for a layer, which would leave the layer's allowlist to the order of the rules.
+ */
+private fun problemsOf(config: ArchitectureConfig): List<String> = buildList {
+    if (config.version != SUPPORTED_VERSION) {
+        add("unsupported version ${config.version}: expected $SUPPORTED_VERSION")
+    }
+    val layers = config.rules.map { it.layer }
+    for (layer in layers.distinct().filter { layer -> layers.count { it == layer } > 1 }) {
+        add("more than one rule for layer '$layer'")
     }
 }
 
@@ -146,7 +157,8 @@ internal val EXPECTED_FORMAT = """
     - "layers" is ordered: the first pattern matching a module path names its layer, so put
       narrower patterns first. '*' matches one path segment, '**' any number of them.
     - A rule is an allowlist: the modules of a layer may only depend on the layers it lists,
-      its own layer included only when listed. A layer without a rule may depend on nothing.
+      its own layer included only when listed. A layer without a rule may depend on nothing,
+      and no layer may have two rules: one allowlist each.
     - "excluded" patterns leave modules out of every layer, so they are neither assigned nor
       reported as unassigned.
 """.trimIndent()

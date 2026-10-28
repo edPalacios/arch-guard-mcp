@@ -2,6 +2,7 @@ package com.archguard.core
 
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.createDirectories
 import kotlin.io.path.createDirectory
 import kotlin.io.path.writeText
 import kotlin.test.Test
@@ -157,11 +158,7 @@ class ListModulesTest {
         assertIs<ModuleList>(ArchGuard.listModules(projectDir))
 
     /** A project whose only file is a `settings.gradle.kts` holding [settings]. */
-    private fun project(settings: String): Path {
-        val projectDir = tempDir.resolve("project").createDirectory()
-        projectDir.resolve(SETTINGS_FILE).writeText(settings.trimIndent())
-        return projectDir
-    }
+    private fun project(settings: String): Path = tempProject(tempDir, settings)
 }
 
 /** The fixture project of that name under `src/test/resources/fixtures`. */
@@ -170,4 +167,25 @@ internal fun fixture(name: String): Path {
         "no fixture project '$name'"
     }
     return Paths.get(url.toURI())
+}
+
+/**
+ * A project written into [dir] for one test: those [settings], that `archguard.json` [config]
+ * when given, and a `build.gradle.kts` per entry of [builds], keyed by module path.
+ */
+internal fun tempProject(
+    dir: Path,
+    settings: String,
+    config: String? = null,
+    builds: Map<String, String> = emptyMap(),
+): Path {
+    val projectDir = dir.resolve("project").createDirectory()
+    projectDir.resolve(SETTINGS_FILE).writeText(settings.trimIndent())
+    if (config != null) projectDir.resolve(CONFIG_FILE).writeText(config.trimIndent())
+    for ((module, script) in builds) {
+        val moduleDir = projectDir.resolve(module.removePrefix(":").replace(':', '/'))
+        moduleDir.createDirectories()
+        moduleDir.resolve(BUILD_FILE).writeText(script.trimIndent())
+    }
+    return projectDir
 }

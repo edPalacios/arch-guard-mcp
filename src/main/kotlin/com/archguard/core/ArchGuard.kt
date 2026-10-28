@@ -35,10 +35,28 @@ object ArchGuard {
         val dir = projectDir.toAbsolutePath().normalize()
         notFound(dir)?.let { return it }
         val filter = module?.takeIf { it.isNotBlank() }
-        if (filter != null) return readModuleGraph(dir, filter)
+        if (filter != null) return readBuild(dir, filter).graph
         return when (val read = readConfig(dir)) {
             is ConfigRead.Unusable -> read.failure
-            is ConfigRead.Loaded -> layerSummary(readModuleGraph(dir, ALL_MODULES), read.config)
+            is ConfigRead.Loaded ->
+                layerSummary(readBuild(dir, ALL_MODULES).graph, read.config)
+        }
+    }
+
+    /**
+     * The [ArchitectureReport] of [projectDir]: every module dependency its `archguard.json`
+     * does not allow, and what the guard could not judge.
+     *
+     * Answers [ProjectNotFound] when [projectDir] is not a directory or holds no settings file,
+     * [ConfigMissing] when the project has no config and [ConfigInvalid] when it cannot be used.
+     */
+    fun checkArchitecture(projectDir: Path): CheckAnswer {
+        val dir = projectDir.toAbsolutePath().normalize()
+        notFound(dir)?.let { return it }
+        return when (val read = readConfig(dir)) {
+            is ConfigRead.Unusable -> read.failure
+            is ConfigRead.Loaded ->
+                architectureReport(readBuild(dir, ALL_MODULES), read.config)
         }
     }
 }

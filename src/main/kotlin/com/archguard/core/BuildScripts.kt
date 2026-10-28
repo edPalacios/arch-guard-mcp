@@ -30,12 +30,26 @@ private data class ModuleScript(
 )
 
 /**
- * The module dependencies of the modules of [projectDir] matching [filter].
+ * What one pass over [projectDir]'s build found.
+ *
+ * @property graph the module dependencies of the modules the filter selected.
+ * @property unresolvedInclusions the settings file's module inclusions that need Gradle to be
+ *   resolved. They belong to no module's build script, so they travel beside [graph] instead of
+ *   inside one of its [ModuleDetail]s.
+ */
+internal data class BuildGraph(
+    val graph: ModuleDependencies,
+    val unresolvedInclusions: List<UnresolvedDeclaration>,
+)
+
+/**
+ * Reads [projectDir]'s settings file and the build scripts of the modules matching [filter].
  *
  * Only the matching modules' build scripts are read, so a filter on one module stays cheap.
  */
-internal fun readModuleGraph(projectDir: Path, filter: String): ModuleDependencies {
-    val modules = readSettings(projectDir).modules
+internal fun readBuild(projectDir: Path, filter: String): BuildGraph {
+    val settings = readSettings(projectDir)
+    val modules = settings.modules
     val byAccessor = modules.associateBy(::accessorOf)
     val scripts = modules
         .filter { matchesModulePattern(filter, it) }
@@ -46,11 +60,18 @@ internal fun readModuleGraph(projectDir: Path, filter: String): ModuleDependenci
         for ((helper, calls) in script.helpers) helpers.merge(helper, calls, Int::plus)
     }
 
-    return ModuleDependencies(
-        filter = filter,
-        modules = scripts.map { it.detail },
-        unanalysedHelpers = helpers,
-        warnings = if (scripts.isEmpty()) listOf("no module matches '$filter'") else emptyList(),
+    return BuildGraph(
+        graph = ModuleDependencies(
+            filter = filter,
+            modules = scripts.map { it.detail },
+            unanalysedHelpers = helpers,
+            warnings = if (scripts.isEmpty()) {
+                listOf("no module matches '$filter'")
+            } else {
+                emptyList()
+            },
+        ),
+        unresolvedInclusions = settings.unresolved,
     )
 }
 

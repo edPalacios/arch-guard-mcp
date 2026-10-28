@@ -1,8 +1,6 @@
 package com.archguard.core
 
 import java.nio.file.Path
-import kotlin.io.path.createDirectory
-import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -184,13 +182,9 @@ class ModuleGraphTest {
         assertIs<ModuleDependencies>(ArchGuard.moduleGraph(projectDir, module))
 
     /** A project with a single module `:a`, whose build script holds [buildScript] when given. */
-    private fun project(buildScript: String?): Path {
-        val projectDir = tempDir.resolve("project").createDirectory()
-        projectDir.resolve(SETTINGS_FILE).writeText("""include(":a")""")
-        if (buildScript != null) {
-            projectDir.resolve("a").createDirectory()
-                .resolve(BUILD_FILE).writeText(buildScript.trimIndent())
-        }
-        return projectDir
-    }
+    private fun project(buildScript: String?): Path = tempProject(
+        tempDir,
+        settings = """include(":a")""",
+        builds = buildScript?.let { mapOf(":a" to it) } ?: emptyMap(),
+    )
 }

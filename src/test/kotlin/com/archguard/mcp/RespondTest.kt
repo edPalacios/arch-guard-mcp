@@ -1,6 +1,7 @@
 package com.archguard.mcp
 
 import com.archguard.core.ArchitectureConfig
+import com.archguard.core.ArchitectureReport
 import com.archguard.core.ConfigInvalid
 import com.archguard.core.ConfigMissing
 import com.archguard.core.LayerEdge
@@ -13,7 +14,9 @@ import com.archguard.core.ModuleDependency
 import com.archguard.core.ModuleDetail
 import com.archguard.core.ModuleList
 import com.archguard.core.ProjectNotFound
+import com.archguard.core.ReportCounts
 import com.archguard.core.UnresolvedDeclaration
+import com.archguard.core.Violation
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlin.test.Test
@@ -76,6 +79,25 @@ class RespondTest {
         unassigned = listOf(":legacy"),
         unanalysedHelpers = mapOf("commonLibs" to 3),
         warnings = listOf("rule for layer 'feature' allows undefined layer 'core'"),
+    )
+
+    private val architectureReport = ArchitectureReport(
+        violations = listOf(
+            Violation(
+                source = ":core:ui",
+                sourceLayer = "core",
+                target = ":feature:orders",
+                targetLayer = "feature",
+                file = "core/ui/build.gradle.kts",
+                line = 13,
+                rule = LayerRule("core", listOf("core")),
+            ),
+        ),
+        unassigned = listOf(":legacy"),
+        unresolved = listOf(UnresolvedDeclaration("uiModule", "core/ui/build.gradle.kts", 14)),
+        unanalysedHelpers = mapOf("commonLibs" to 3),
+        warnings = listOf("layer 'feature' matches no module"),
+        counts = ReportCounts(modules = 2, dependencies = 4, violations = 1),
     )
 
     // The real text is one constant, pinned where the core answers; here only its field counts.
@@ -219,6 +241,57 @@ class RespondTest {
                 "warnings": [
                     "rule for layer 'feature' allows undefined layer 'core'"
                 ]
+            }
+            """.trimIndent(),
+            text(result),
+        )
+    }
+
+    @Test
+    fun `the architecture report wire format`() {
+        val result = respond(architectureReport)
+
+        assertEquals(
+            """
+            {
+                "type": "ArchitectureReport",
+                "violations": [
+                    {
+                        "source": ":core:ui",
+                        "sourceLayer": "core",
+                        "target": ":feature:orders",
+                        "targetLayer": "feature",
+                        "file": "core/ui/build.gradle.kts",
+                        "line": 13,
+                        "rule": {
+                            "layer": "core",
+                            "mayDependOn": [
+                                "core"
+                            ]
+                        }
+                    }
+                ],
+                "unassigned": [
+                    ":legacy"
+                ],
+                "unresolved": [
+                    {
+                        "declaration": "uiModule",
+                        "file": "core/ui/build.gradle.kts",
+                        "line": 14
+                    }
+                ],
+                "unanalysedHelpers": {
+                    "commonLibs": 3
+                },
+                "warnings": [
+                    "layer 'feature' matches no module"
+                ],
+                "counts": {
+                    "modules": 2,
+                    "dependencies": 4,
+                    "violations": 1
+                }
             }
             """.trimIndent(),
             text(result),

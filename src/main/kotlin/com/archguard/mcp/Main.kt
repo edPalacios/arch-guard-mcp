@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -37,6 +38,7 @@ fun main() {
     )
     registerListModules(server)
     registerGetModuleGraph(server)
+    registerCheckArchitecture(server)
 
     val transport = StdioServerTransport(
         input = System.`in`.asSource().buffered(),
@@ -59,10 +61,7 @@ private fun registerListModules(server: Server) {
             "declared with include(...). Static analysis only: Gradle is not executed.",
         inputSchema = ToolSchema(
             properties = buildJsonObject {
-                putJsonObject("projectPath") {
-                    put("type", "string")
-                    put("description", "Absolute path to the root directory of the Gradle project")
-                }
+                putProjectPath()
             },
             required = listOf("projectPath"),
         ),
@@ -92,10 +91,7 @@ private fun registerGetModuleGraph(server: Server) {
             "declares. Static analysis only: Gradle is not executed.",
         inputSchema = ToolSchema(
             properties = buildJsonObject {
-                putJsonObject("projectPath") {
-                    put("type", "string")
-                    put("description", "Absolute path to the root directory of the Gradle project")
-                }
+                putProjectPath()
                 putJsonObject("module") {
                     put("type", "string")
                     put(
@@ -111,6 +107,46 @@ private fun registerGetModuleGraph(server: Server) {
     ) { request ->
         respond(ArchGuard.moduleGraph(request.projectDir(), request.module()))
     }
+}
+
+private fun registerCheckArchitecture(server: Server) {
+    server.addTool(
+        name = "check_architecture",
+        title = "Check the module dependencies against the architecture rules",
+        description = "Checks every module dependency of a Gradle project against the layers " +
+            "and rules of archguard.json in its root, and returns the dependencies no rule " +
+            "allows under 'violations': source and target module, the layer of each, the file " +
+            "and line that declares it, and the source layer's rule, so the fix is visible " +
+            "without reading the config again. Also what the check could not cover: 'unassigned' " +
+            "modules match no layer and are nobody's violation (give them a layer or exclude " +
+            "them in the config), 'unresolved' declarations are module inclusions or " +
+            "dependencies only Gradle could resolve (variables, string templates), so the " +
+            "modules behind them went unjudged, and 'unanalysedHelpers' counts calls " +
+            "to the project's own dependency helpers by name — the modules those add are a " +
+            "blind spot, so read the helper to learn what it declares. 'warnings' reports what " +
+            "the config claims and the build does not bear out, such as a layer matching no " +
+            "module; 'counts' sizes up the modules and dependencies checked. An empty " +
+            "'violations' list with empty 'unresolved' and 'unanalysedHelpers' means the whole " +
+            "build was checked and holds. Without archguard.json the call is an error carrying " +
+            "the expected format and a proposed config to review. Use get_module_graph for the " +
+            "layer summary or for one module's dependencies. Static analysis only: Gradle is " +
+            "not executed.",
+        inputSchema = ToolSchema(
+            properties = buildJsonObject {
+                putProjectPath()
+            },
+            required = listOf("projectPath"),
+        ),
+        toolAnnotations = ToolAnnotations(readOnlyHint = true, openWorldHint = false),
+    ) { request ->
+        respond(ArchGuard.checkArchitecture(request.projectDir()))
+    }
+}
+
+/** The `projectPath` property every tool's input schema requires, described once. */
+private fun JsonObjectBuilder.putProjectPath() = putJsonObject("projectPath") {
+    put("type", "string")
+    put("description", "Absolute path to the root directory of the Gradle project")
 }
 
 /** The analysed project's root directory, from the required `projectPath` argument. */

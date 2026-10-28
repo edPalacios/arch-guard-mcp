@@ -1,14 +1,23 @@
 package com.archguard.core
 
 /**
- * Putting modules in layers and summarising how they depend on each other: pure functions of
- * the build already read and the architecture config.
+ * Putting modules in layers and judging how they depend on each other: pure functions of the
+ * build already read and the architecture config.
  */
 
 /**
- * The layer [module] belongs to, or null when the config excludes it or no pattern matches it
- * (see [isExcluded] to tell those two apart). The first matching pattern wins, so the config's
- * order is the one that decides.
+ * The layer of each module of the build, in path order, null for the modules the config
+ * excludes or no pattern matches (see [isExcluded] to tell those two apart). Computed once per
+ * call: a module path outside this map is no module of the build, so it crosses no layers.
+ */
+private fun layerAssignment(
+    config: ArchitectureConfig,
+    graph: ModuleDependencies,
+): Map<String, String?> = graph.modules.associate { it.path to layerOf(config, it.path) }
+
+/**
+ * The layer [module] belongs to, or null when the config excludes it or no pattern matches it.
+ * The first matching pattern wins, so the config's order is the one that decides.
  */
 private fun layerOf(config: ArchitectureConfig, module: String): String? =
     if (isExcluded(config, module)) {
@@ -25,28 +34,113 @@ private fun isExcluded(config: ArchitectureConfig, module: String): Boolean =
 private fun layerNames(config: ArchitectureConfig): List<String> =
     config.layers.map { it.name }.distinct()
 
+/**
+ * The layer rule [config] governs layer [layer] by, or null when it gives it none. A config
+ * with two rules for one layer never reaches here: [readConfig] answers [ConfigInvalid], so the
+ * first matching rule is the only one.
+ */
+private fun ruleOf(config: ArchitectureConfig, layer: String): LayerRule? =
+    config.rules.firstOrNull { it.layer == layer }
+
 /** Whether [config]'s rules let the modules of layer [from] depend on those of layer [to]. */
 private fun isAllowed(config: ArchitectureConfig, from: String, to: String): Boolean =
-    config.rules.any { it.layer == from && to in it.mayDependOn }
+    to in (ruleOf(config, from)?.mayDependOn ?: emptyList())
+
+/** The modules of each layer [config] defines, in config order. */
+private fun layersOf(
+    config: ArchitectureConfig,
+    layerOfModule: Map<String, String?>,
+): List<LayerModules> = layerNames(config).map { name ->
+    LayerModules(layer = name, modules = layerOfModule.keys.filter { layerOfModule[it] == name })
+}
+
+/** The modules [config] neither assigns to a layer nor excludes, sorted by path. */
+private fun unassignedOf(
+    config: ArchitectureConfig,
+    layerOfModule: Map<String, String?>,
+): List<String> = layerOfModule.filterValues { it == null }.keys.filter { !isExcluded(config, it) }
+
+/** Sorted the way a reader walks the build: by file, then line. */
+private fun <T> byFileThenLine(items: List<T>, file: (T) -> String, line: (T) -> Int): List<T> =
+    items.sortedWith(compareBy(file, line))
 
 /** Summarises the whole-build [graph] against [config]. */
 internal fun layerSummary(graph: ModuleDependencies, config: ArchitectureConfig): LayerSummary {
-    val names = layerNames(config)
-    val layerOfModule = graph.modules.associate { it.path to layerOf(config, it.path) }
-    val modules = graph.modules.map { it.path } // already sorted by path
-
-    val layers = names.map { name ->
-        LayerModules(layer = name, modules = modules.filter { layerOfModule[it] == name })
-    }
+    val layerOfModule = layerAssignment(config, graph)
+    val layers = layersOf(config, layerOfModule)
 
     return LayerSummary(
         config = config,
         layers = layers,
-        matrix = matrixOf(graph, config, layerOfModule, names),
-        unassigned = modules.filter { layerOfModule[it] == null && !isExcluded(config, it) },
+        matrix = matrixOf(graph, config, layerOfModule, layerNames(config)),
+        unassigned = unassignedOf(config, layerOfModule),
         unanalysedHelpers = graph.unanalysedHelpers,
         warnings = warningsOf(config, layers),
     )
+}
+
+/** Judges the whole [build] against [config]. */
+internal fun architectureReport(
+    build: BuildGraph,
+    config: ArchitectureConfig,
+): ArchitectureReport {
+    val graph = build.graph
+    val layerOfModule = layerAssignment(config, graph)
+    val violations = violationsOf(graph, config, layerOfModule)
+
+    return ArchitectureReport(
+        violations = violations,
+        unassigned = unassignedOf(config, layerOfModule),
+        // Inclusions and dependencies alike: a module the guard never saw included was judged
+        // as little as one it could not resolve a dependency on.
+        unresolved = byFileThenLine(
+            build.unresolvedInclusions + graph.modules.flatMap { it.unresolved },
+            UnresolvedDeclaration::file,
+            UnresolvedDeclaration::line,
+        ),
+        unanalysedHelpers = graph.unanalysedHelpers,
+        warnings = warningsOf(config, layersOf(config, layerOfModule)),
+        counts = ReportCounts(
+            modules = graph.modules.size,
+            dependencies = graph.modules.sumOf { module ->
+                module.dependencies.distinctBy { it.target }.size
+            },
+            violations = violations.size,
+        ),
+    )
+}
+
+/**
+ * Every module dependency whose source layer's rule does not allow its target layer. A module
+ * outside every layer, and a dependency on one, cross no layers and so break no rule: an
+ * excluded module appears on neither side. Each source module → target module pair is one
+ * violation, reported at the first line that declares it.
+ */
+private fun violationsOf(
+    graph: ModuleDependencies,
+    config: ArchitectureConfig,
+    layerOfModule: Map<String, String?>,
+): List<Violation> {
+    val violations = graph.modules.flatMap { module ->
+        val from = layerOfModule[module.path] ?: return@flatMap emptyList()
+        module.dependencies
+            .sortedBy { it.line }
+            .distinctBy { it.target }
+            .mapNotNull { dependency ->
+                val to = layerOfModule[dependency.target] ?: return@mapNotNull null
+                if (isAllowed(config, from, to)) return@mapNotNull null
+                Violation(
+                    source = module.path,
+                    sourceLayer = from,
+                    target = dependency.target,
+                    targetLayer = to,
+                    file = dependency.file,
+                    line = dependency.line,
+                    rule = ruleOf(config, from),
+                )
+            }
+    }
+    return byFileThenLine(violations, Violation::file, Violation::line)
 }
 
 /**

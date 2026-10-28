@@ -18,12 +18,16 @@ sealed interface ListAnswer : Answer
 @Serializable
 sealed interface GraphAnswer : Answer
 
+/** What [ArchGuard.checkArchitecture] answers. */
+@Serializable
+sealed interface CheckAnswer : Answer
+
 /**
  * A problem of the analysed project, not of the guard: expected, reported as a value, and
  * marked as an error result by the MCP layer.
  */
 @Serializable
-sealed interface Failure : ListAnswer, GraphAnswer
+sealed interface Failure : ListAnswer, GraphAnswer, CheckAnswer
 
 /**
  * The modules of the analysed build.
@@ -111,6 +115,69 @@ data class LayerEdge(
     val to: String,
     val count: Int,
     val allowed: Boolean,
+)
+
+/**
+ * What the build does that its architecture config does not allow.
+ *
+ * @property violations the module dependencies no layer rule allows, sorted by file then line.
+ * @property unassigned modules that match no layer and are not excluded, sorted by path. Not
+ *   violations: the config either grows a layer for them or excludes them.
+ * @property unresolved the module inclusions and dependency declarations that need Gradle to be
+ *   resolved, sorted by file then line: modules they point at were judged by nobody.
+ * @property unanalysedHelpers how many calls each dependency helper got, by helper name: the
+ *   dependencies it declares are invisible to the guard, so the agent knows the blind spot.
+ * @property warnings what the guard noticed without stopping, such as an empty layer.
+ * @property counts the size of what was checked, so a violation count can be read in scale.
+ */
+@Serializable
+@SerialName("ArchitectureReport")
+data class ArchitectureReport(
+    val violations: List<Violation>,
+    val unassigned: List<String>,
+    val unresolved: List<UnresolvedDeclaration>,
+    val unanalysedHelpers: Map<String, Int>,
+    val warnings: List<String>,
+    val counts: ReportCounts,
+) : CheckAnswer
+
+/**
+ * A module dependency that no layer rule allows.
+ *
+ * @property source the module that declares the dependency.
+ * @property sourceLayer the layer [source] belongs to.
+ * @property target the module depended on.
+ * @property targetLayer the layer [target] belongs to, which [rule] does not list.
+ * @property file path relative to the project root, with `/`.
+ * @property line 1-based line of the declaration in [file]; the first one when the same
+ *   dependency is declared in several configurations.
+ * @property rule the layer rule of [sourceLayer], so the agent sees what is allowed instead, or
+ *   null when the config gives [sourceLayer] no rule and so allows it nothing.
+ */
+@Serializable
+data class Violation(
+    val source: String,
+    val sourceLayer: String,
+    val target: String,
+    val targetLayer: String,
+    val file: String,
+    val line: Int,
+    val rule: LayerRule?,
+)
+
+/**
+ * How much the report covers, counted over the whole build, excluded modules included.
+ *
+ * @property modules how many modules the build declares.
+ * @property dependencies how many module dependencies they declare, one per source module →
+ *   target module pair.
+ * @property violations how many of those dependencies no layer rule allows.
+ */
+@Serializable
+data class ReportCounts(
+    val modules: Int,
+    val dependencies: Int,
+    val violations: Int,
 )
 
 /**

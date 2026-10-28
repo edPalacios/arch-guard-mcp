@@ -1,8 +1,6 @@
 package com.archguard.core
 
 import java.nio.file.Path
-import kotlin.io.path.createDirectory
-import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -298,6 +296,27 @@ class LayerSummaryTest {
     }
 
     @Test
+    fun `two rules for one layer answer ConfigInvalid`() {
+        val projectDir = project(
+            settings = """include(":app")""",
+            config = """
+            {
+              "version": 1,
+              "layers": [{ "pattern": ":app", "name": "app" }],
+              "rules": [
+                { "layer": "app", "mayDependOn": ["core"] },
+                { "layer": "app", "mayDependOn": ["feature"] }
+              ]
+            }
+            """,
+        )
+
+        val answer = configInvalid(projectDir)
+
+        assertEquals(listOf("more than one rule for layer 'app'"), answer.problems)
+    }
+
+    @Test
     fun `a version other than 1 answers ConfigInvalid`() {
         val projectDir = project(
             settings = """include(":app")""",
@@ -316,10 +335,6 @@ class LayerSummaryTest {
         assertIs<ConfigInvalid>(ArchGuard.moduleGraph(projectDir))
 
     /** A project with those [settings] and, when given, that `archguard.json` [config]. */
-    private fun project(settings: String, config: String?): Path {
-        val projectDir = tempDir.resolve("project").createDirectory()
-        projectDir.resolve(SETTINGS_FILE).writeText(settings)
-        if (config != null) projectDir.resolve(CONFIG_FILE).writeText(config.trimIndent())
-        return projectDir
-    }
+    private fun project(settings: String, config: String?): Path =
+        tempProject(tempDir, settings, config)
 }
